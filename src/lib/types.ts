@@ -1,0 +1,271 @@
+export type Team = "Domestic" | "International";
+
+export type Status =
+  | "pending" | "in_progress" | "for_review" | "revisions"
+  | "on_hold" | "completed" | "published" | "canceled" | "removed";
+
+export type Priority = "high" | "medium" | "low";
+
+export type ColKey = "tasks" | "premium" | "gladex" | "tariff";
+
+export type DailyStatus = "assigned" | "in_progress" | "completed" | "published";
+
+export interface DailyEvent {
+  ts: number;
+  action: DailyStatus;
+  label: string;
+}
+
+export interface DailyTask {
+  id: string;
+  agentId: string;
+  title: string;
+  date: string; // YYYY-MM-DD
+  status: DailyStatus;
+  assignedBy: string;
+  assignedAt: number;
+  startedAt: number | null;
+  completedAt: number | null;
+  timeline: DailyEvent[];
+}
+
+export interface StyleMeta {
+  txt: string;
+  c: string;
+  soft: string;
+}
+
+export interface KpiStatusMeta {
+  txt: string;
+  c: string;
+  soft: string;
+  dot: string;
+}
+
+export interface Agent {
+  id: string;
+  name: string;
+  team: Team;
+  username: string;
+  password: string;
+}
+
+export interface CommentEntry {
+  id: string;
+  by: string;
+  role: string;
+  text: string;
+  ts: number;
+}
+
+export interface ActivityEntry {
+  id: string;
+  type: string;
+  text: string;
+  by: string;
+  role: string;
+  ts: number;
+}
+
+export interface LinkItem {
+  id: string;
+  label: string;
+  url: string;
+}
+
+export interface ProofItem {
+  id: string;
+  kind: "image" | "file" | "link";
+  name: string;
+  dataUrl?: string;
+  url?: string;
+  ts: number;
+  by: string;
+}
+
+export interface TaskRecord {
+  id: string;
+  agentId: string | null;
+  title: string;
+  category?: string;
+  department?: string;
+  destination?: string;
+  team?: string;
+  status: Status;
+  priority?: Priority;
+  progress?: number;
+  startDate?: number | null;
+  dueDate?: number | null;
+  startedAt?: number | null;
+  completedAt?: number | null;
+  estimatedHours?: number;
+  itemsTotal?: number;
+  itemsError?: number;
+  special?: boolean;
+  target?: string;
+  requirements?: string;
+  remarks?: string;
+  description?: string;
+  links?: LinkItem[];
+  proof?: ProofItem[];
+  proofCount?: number;
+  comments?: CommentEntry[];
+  activity?: ActivityEntry[];
+  assignedBy?: string;
+  completedBy?: string | null;
+  updatedAt?: number;
+  updatedBy?: string;
+  // added only by flattenRecords() when building cross-collection reports
+  _col?: ColKey;
+  _isProject?: boolean;
+}
+
+export interface LogEntry {
+  id: string;
+  userId: string;
+  name: string;
+  role: string;
+  type: string;
+  detail: string;
+  ts: number;
+}
+
+export interface KpiDef {
+  id: string;
+  staffId: string;
+  task: string;
+  target: number;
+}
+
+export interface KpiData {
+  defs: KpiDef[];
+  progress: Record<string, Record<string, number>>;
+}
+
+export interface ReportState {
+  status: string;
+  submittedAt?: number;
+  submittedBy?: string;
+  approvedAt?: number | null;
+  approvedBy?: string;
+}
+
+export interface AdminAccount {
+  username: string;
+  password: string;
+  name: string;
+}
+
+export interface AppData {
+  agents: Agent[];
+  admin: AdminAccount;
+  tasks: TaskRecord[];
+  premium: TaskRecord[];
+  gladex: TaskRecord[];
+  tariff: TaskRecord[];
+  daily: DailyTask[]; 
+  logs: LogEntry[];
+  reports: Record<string, ReportState>;
+  kpi: KpiData;
+  seeded?: boolean;
+}
+
+export interface Session {
+  role: "admin" | "agent";
+  agentId?: string;
+  name: string;
+}
+
+export interface Actor {
+  id: string;
+  name: string;
+  role: string;
+}
+
+export interface TrackerConfig {
+  label: string;
+  sub: string;
+  titleLabel: string;
+  columns: string[];
+  addFields: string[];
+}
+
+export interface DetailTarget {
+  col: ColKey;
+  id: string;
+}
+
+export type LoginPayload = { role: "admin" } | Agent;
+
+export interface DueMeta {
+  c: string;
+  label: string;
+  over: boolean;
+}
+
+export interface SpeedLabelMeta {
+  txt: string;
+  c: string;
+}
+
+export interface Band {
+  txt: string;
+  c: string;
+}
+
+export interface AgentStats {
+  mine: TaskRecord[];
+  active: TaskRecord[];
+  completed: TaskRecord[];
+  published: TaskRecord[];
+  inprog: TaskRecord[];
+  avgSpeed: number | null;
+  accuracy: number | null;
+  errorRate: number | null;
+  productivity: number;
+  totItems: number;
+  totErr: number;
+}
+
+export interface GroupStats {
+  count: number;
+  completed: number;
+  published: number;
+  inprog: number;
+  avgSpeed: number | null;
+  accuracy: number | null;
+  productivity: number;
+}
+
+export interface ChartItem {
+  label: string;
+  value: number;
+  color?: string;
+}
+
+export interface StaffMonthStats {
+  mine: TaskRecord[];
+  completed: TaskRecord[];
+  started: TaskRecord[];
+  pending: TaskRecord[];
+  overdue: TaskRecord[];
+  high: TaskRecord[];
+  onTime: TaskRecord[];
+  delayed: TaskRecord[];
+  projects: TaskRecord[];
+  completedProjects: TaskRecord[];
+  activeProjects: TaskRecord[];
+  dests: string[];
+  reassigned: number;
+  assignedN: number;
+  completedN: number;
+  startedN: number;
+  pendingN: number;
+  overdueN: number;
+  completionPct: number;
+  onTimePct: number;
+  productivity: number;
+  kpi: number;
+  avgTime: number | null;
+  lastActivity: number | null;
+}
