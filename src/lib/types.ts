@@ -42,12 +42,14 @@ export interface KpiStatusMeta {
   dot: string;
 }
 
+// Note: no `password` field — the client never receives it. Agents are
+// fetched via the password-free `agents_public` view (see src/lib/api.ts),
+// and login/credential checks happen server-side via the `login` RPC.
 export interface Agent {
   id: string;
   name: string;
   team: Team;
   username: string;
-  password: string;
 }
 
 export interface CommentEntry {
@@ -150,15 +152,8 @@ export interface ReportState {
   approvedBy?: string;
 }
 
-export interface AdminAccount {
-  username: string;
-  password: string;
-  name: string;
-}
-
 export interface AppData {
   agents: Agent[];
-  admin: AdminAccount;
   tasks: TaskRecord[];
   premium: TaskRecord[];
   gladex: TaskRecord[];
@@ -195,7 +190,14 @@ export interface DetailTarget {
   id: string;
 }
 
-export type LoginPayload = { role: "admin" } | Agent;
+// returned by the `login` RPC — see src/lib/api.ts
+export interface LoginResult {
+  role: "admin" | "agent";
+  id: string;
+  username: string;
+  name: string;
+  team?: Team;
+}
 
 export interface DueMeta {
   c: string;

@@ -1,7 +1,11 @@
 -- PDT Dashboard — incremental migration: Daily Tasking feature
--- Run this ONLY if you already ran the original schema.sql (adds the new
--- daily_tasks table + policy + realtime without re-running everything else,
--- which would error on "policy already exists").
+--
+-- SKIP THIS FILE if schema.sql already includes a "daily_tasks" table (it
+-- does as of this writing) and you ran schema.sql fresh — you already have
+-- everything this file adds. This is only for a database that was set up
+-- from an OLDER schema.sql that predates Daily Tasking, so you can add just
+-- the new table + policy + realtime without re-running everything else
+-- (which would error on "policy already exists").
 
 create table if not exists daily_tasks (
   id           text primary key,
@@ -21,6 +25,8 @@ create index if not exists daily_tasks_date_idx on daily_tasks(date);
 alter table daily_tasks enable row level security;
 
 -- same "anon full access" trade-off as every other table — see schema.sql's note.
+-- drop-then-create makes this file safe to run more than once.
+drop policy if exists "anon full access" on daily_tasks;
 create policy "anon full access" on daily_tasks for all using (true) with check (true);
 
 -- realtime: lets the app live-refresh on changes (see subscribeToChanges() in src/lib/api.ts).

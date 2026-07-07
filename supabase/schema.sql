@@ -1,7 +1,13 @@
 -- PDT Dashboard — Supabase schema
 -- Run this once in the Supabase SQL editor (Project → SQL Editor → New query).
 
+create extension if not exists pgcrypto;
+set search_path = public, extensions;
+
 -- ---------- agents ----------
+-- password is a bcrypt hash (via pgcrypto's crypt()/gen_salt('bf')), never
+-- plaintext. It's only ever written/checked inside the security-definer
+-- functions below — the client never sees it (see agents_public view).
 create table if not exists agents (
   id       text primary key,
   name     text not null,
@@ -18,6 +24,13 @@ create table if not exists admins (
   password text not null,
   name     text not null default 'Supervisor / Manager'
 );
+
+-- safe subset of `agents` for the client to read directly — no password column.
+-- Views run with the privileges of their owner (not the querying role), so
+-- this bypasses the RLS lockdown on `agents` below while never exposing
+-- password hashes.
+create or replace view agents_public as
+  select id, name, team, username from agents;
 
 -- ---------- records: unifies tasks / premium / gladex / tariff ----------
 create table if not exists records (
@@ -115,18 +128,106 @@ create table if not exists daily_tasks (
 create index if not exists daily_tasks_agent_idx on daily_tasks(agent_id);
 create index if not exists daily_tasks_date_idx on daily_tasks(date);
 
+-- ---------- auth functions ----------
+-- All credential reads/writes go through these security-definer functions,
+-- which run with the privileges of the function owner and so bypass RLS —
+-- that's how they can check/hash passwords even though anon has zero direct
+-- access to `agents`/`admins`. The client never sees a password or a hash.
+
+create or replace function public.login(p_username text, p_password text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  result jsonb;
+begin
+  select jsonb_build_object('role', 'admin', 'id', id, 'username', username, 'name', name)
+    into result from admins
+    where username = lower(p_username) and password = crypt(p_password, password)
+    limit 1;
+  if result is not null then return result; end if;
+
+  select jsonb_build_object('role', 'agent', 'id', id, 'username', username, 'name', name, 'team', team)
+    into result from agents
+    where username = lower(p_username) and password = crypt(p_password, password)
+    limit 1;
+  return result;
+end;
+$$;
+
+create or replace function public.create_agent(p_id text, p_name text, p_team text, p_username text, p_password text)
+returns void
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+begin
+  if exists (select 1 from agents where username = lower(p_username))
+     or exists (select 1 from admins where username = lower(p_username)) then
+    raise exception 'That username is already taken.';
+  end if;
+  insert into agents (id, name, team, username, password)
+  values (p_id, p_name, p_team, lower(p_username), crypt(p_password, gen_salt('bf')));
+end;
+$$;
+
+-- any param left null keeps its current value; p_password null/empty keeps the current password.
+create or replace function public.update_agent(p_id text, p_name text default null, p_team text default null, p_username text default null, p_password text default null)
+returns void
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_username text;
+begin
+  v_username := lower(coalesce(p_username, (select username from agents where id = p_id)));
+  if exists (select 1 from agents where username = v_username and id <> p_id)
+     or exists (select 1 from admins where username = v_username) then
+    raise exception 'That username is already taken.';
+  end if;
+  update agents set
+    name = coalesce(p_name, name),
+    team = coalesce(p_team, team),
+    username = v_username,
+    password = case when p_password is not null and length(p_password) > 0 then crypt(p_password, gen_salt('bf')) else password end
+  where id = p_id;
+end;
+$$;
+
+create or replace function public.delete_agent(p_id text)
+returns void
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+begin
+  delete from agents where id = p_id;
+end;
+$$;
+
+revoke all on function public.login(text, text) from public;
+revoke all on function public.create_agent(text, text, text, text, text) from public;
+revoke all on function public.update_agent(text, text, text, text, text) from public;
+revoke all on function public.delete_agent(text) from public;
+grant execute on function public.login(text, text) to anon, authenticated;
+grant execute on function public.create_agent(text, text, text, text, text) to anon, authenticated;
+grant execute on function public.update_agent(text, text, text, text, text) to anon, authenticated;
+grant execute on function public.delete_agent(text) to anon, authenticated;
+
 -- ---------- Row Level Security ----------
 -- NOTE (security tradeoff, please read):
--- This app authenticates with a custom username/password check against the
--- `agents`/`admins` tables rather than real Supabase Auth, so there is no
--- `auth.uid()` to key policies on. The policies below allow full read/write
--- to anyone holding the public anon key (which ships in the JS bundle and is
--- never actually secret). That matches the app's current, already-disclosed
--- demo-credential model (the login screen literally prints "Agents password:
--- pdt123 / Admin: admin123"), but it means anyone with the anon key can read
--- or write any row directly, bypassing the UI entirely. Fine for an internal
--- demo/prototype; if this ever holds real credentials or sensitive data,
--- switch to real Supabase Auth + policies keyed on auth.uid().
+-- This app authenticates with a custom username/password check rather than
+-- real Supabase Auth, so there is no `auth.uid()` to key policies on. Every
+-- table below except `agents`/`admins` allows full read/write to anyone
+-- holding the public anon key (which ships in the JS bundle and is never
+-- actually secret) — fine for an internal tool with no real per-user access
+-- control, but worth knowing. `agents`/`admins` are the exception: they hold
+-- password hashes, so anon gets NO direct policy on them at all (deny by
+-- default) — all access goes through the security-definer functions above,
+-- plus the password-free `agents_public` view for reading the roster.
 alter table agents enable row level security;
 alter table admins enable row level security;
 alter table records enable row level security;
@@ -136,14 +237,20 @@ alter table kpi_progress enable row level security;
 alter table reports enable row level security;
 alter table daily_tasks enable row level security;
 
-create policy "anon full access" on agents for all using (true) with check (true);
-create policy "anon full access" on admins for all using (true) with check (true);
+-- drop-then-create makes this file safe to run more than once.
+drop policy if exists "anon full access" on records;
+drop policy if exists "anon full access" on logs;
+drop policy if exists "anon full access" on kpi_defs;
+drop policy if exists "anon full access" on kpi_progress;
+drop policy if exists "anon full access" on reports;
+drop policy if exists "anon full access" on daily_tasks;
 create policy "anon full access" on records for all using (true) with check (true);
 create policy "anon full access" on logs for all using (true) with check (true);
 create policy "anon full access" on kpi_defs for all using (true) with check (true);
 create policy "anon full access" on kpi_progress for all using (true) with check (true);
 create policy "anon full access" on reports for all using (true) with check (true);
 create policy "anon full access" on daily_tasks for all using (true) with check (true);
+grant select on agents_public to anon, authenticated;
 
 -- ---------- Realtime ----------
 -- Lets the app live-refresh when any user changes a record or daily task

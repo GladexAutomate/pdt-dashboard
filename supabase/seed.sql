@@ -3,7 +3,10 @@
 -- Mirrors the demo dataset that used to live in src/lib/seed.ts.
 -- All dates are relative to the moment you run this script.
 
+set search_path = public, extensions;
+
 -- ---------- agents ----------
+-- demo password for every agent below: pdt123 (hashed immediately after insert, see bottom of this section)
 insert into agents (id, name, team, username, password) values
   ('a1', 'Ann',    'Domestic',      'ann',    'pdt123'),
   ('a2', 'Jess',   'Domestic',      'jess',   'pdt123'),
@@ -16,9 +19,14 @@ insert into agents (id, name, team, username, password) values
 on conflict (id) do nothing;
 
 -- ---------- admin ----------
+-- demo password: admin123 (hashed immediately below)
 insert into admins (id, username, password, name) values
   ('admin', 'admin', 'admin123', 'Supervisor / Manager')
 on conflict (id) do nothing;
+
+-- hash any plaintext passwords just inserted above (safe to re-run: skips anything already a bcrypt hash).
+update agents set password = crypt(password, gen_salt('bf')) where password not like '$2%';
+update admins set password = crypt(password, gen_salt('bf')) where password not like '$2%';
 
 -- ---------- tasks ----------
 insert into records (id, collection, agent_id, title, category, status, priority, progress,

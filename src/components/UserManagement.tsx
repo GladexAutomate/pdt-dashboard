@@ -11,24 +11,32 @@ export interface NewAgentInput {
   password: string;
 }
 
+export interface UpdateAgentInput {
+  name?: string;
+  team?: Team;
+  username?: string;
+  password?: string;
+}
+
 interface UserManagementProps {
   data: AppData;
   addAgent: (input: NewAgentInput) => Promise<string | null>;
-  updateAgent: (id: string, patch: Partial<Agent>) => Promise<string | null>;
+  updateAgent: (id: string, patch: UpdateAgentInput) => Promise<string | null>;
   removeAgent: (id: string) => Promise<string | null>;
 }
 
 const TEAMS: Team[] = ["Domestic", "International"];
 
-function PasswordReveal({ value }: { value: string }) {
+function PasswordField({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
   const [show, setShow] = useState(false);
   return (
-    <span className="inline-flex items-center gap-1.5">
-      <span style={{ fontFamily: "monospace", fontSize: 12.5 }}>{show ? value : "•".repeat(Math.max(6, value.length))}</span>
+    <div className="flex items-center gap-1.5" style={{ ...inputStyle, padding: "2px 6px" }}>
+      <input type={show ? "text" : "password"} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
+        style={{ border: "none", outline: "none", flex: 1, fontSize: 13, background: "transparent", padding: "4px 0" }} />
       <button type="button" onClick={() => setShow((v) => !v)} style={{ background: "transparent", border: "none", cursor: "pointer", color: C.sub, display: "flex" }}>
         {show ? <EyeOff size={13} /> : <Eye size={13} />}
       </button>
-    </span>
+    </div>
   );
 }
 
@@ -37,7 +45,6 @@ function AddUserForm({ onAdd, onCancel }: { onAdd: (input: NewAgentInput) => Pro
   const [team, setTeam] = useState<Team>("Domestic");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [showPw, setShowPw] = useState(false);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const valid = name.trim().length > 1 && username.trim().length > 1 && password.trim().length > 3;
@@ -61,15 +68,7 @@ function AddUserForm({ onAdd, onCancel }: { onAdd: (input: NewAgentInput) => Pro
           </select>
         </Field>
         <Field label="Username"><input value={username} onChange={(e) => setUsername(e.target.value.toLowerCase())} placeholder="e.g. maria" style={inputStyle} /></Field>
-        <Field label="Password">
-          <div className="flex items-center gap-2" style={{ ...inputStyle, padding: 0, paddingLeft: 11 }}>
-            <input type={showPw ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Temporary password"
-              style={{ border: "none", outline: "none", padding: "9px 4px 9px 0", flex: 1, fontSize: 14, background: "transparent" }} />
-            <button type="button" onClick={() => setShowPw((v) => !v)} style={{ background: "transparent", border: "none", padding: "9px 11px 9px 0", cursor: "pointer", display: "flex", color: C.sub }}>
-              {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
-            </button>
-          </div>
-        </Field>
+        <Field label="Password"><PasswordField value={password} onChange={setPassword} placeholder="Temporary password" /></Field>
       </div>
       {err && <div style={{ color: C.rose, fontSize: 12.5, marginTop: 8 }}>{err}</div>}
       <div className="flex gap-2 mt-3">
@@ -80,20 +79,21 @@ function AddUserForm({ onAdd, onCancel }: { onAdd: (input: NewAgentInput) => Pro
   );
 }
 
-function UserRow({ agent, onUpdate, onRemove }: { agent: Agent; onUpdate: (id: string, patch: Partial<Agent>) => Promise<string | null>; onRemove: (id: string) => Promise<string | null> }) {
+function UserRow({ agent, onUpdate, onRemove }: { agent: Agent; onUpdate: (id: string, patch: UpdateAgentInput) => Promise<string | null>; onRemove: (id: string) => Promise<string | null> }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(agent.name);
   const [team, setTeam] = useState<Team>(agent.team);
   const [username, setUsername] = useState(agent.username);
-  const [password, setPassword] = useState(agent.password);
-  const [showPw, setShowPw] = useState(false);
+  const [password, setPassword] = useState(""); // blank = keep current password
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const startEdit = () => { setName(agent.name); setTeam(agent.team); setUsername(agent.username); setPassword(agent.password); setErr(""); setEditing(true); };
+  const startEdit = () => { setName(agent.name); setTeam(agent.team); setUsername(agent.username); setPassword(""); setErr(""); setEditing(true); };
   const save = async () => {
     setErr(""); setBusy(true);
-    const result = await onUpdate(agent.id, { name: name.trim(), team, username: username.trim(), password: password.trim() });
+    const patch: UpdateAgentInput = { name: name.trim(), team, username: username.trim() };
+    if (password.trim()) patch.password = password.trim();
+    const result = await onUpdate(agent.id, patch);
     setBusy(false);
     if (result) { setErr(result); return; }
     setEditing(false);
@@ -113,12 +113,7 @@ function UserRow({ agent, onUpdate, onRemove }: { agent: Agent; onUpdate: (id: s
           </select>
         </td>
         <td style={{ padding: "8px 10px" }}><input value={username} onChange={(e) => setUsername(e.target.value.toLowerCase())} style={{ ...inputStyle, padding: "6px 8px", fontSize: 13 }} /></td>
-        <td style={{ padding: "8px 10px" }}>
-          <div className="flex items-center gap-1.5" style={{ ...inputStyle, padding: "2px 6px" }}>
-            <input type={showPw ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} style={{ border: "none", outline: "none", flex: 1, fontSize: 13, background: "transparent", padding: "4px 0" }} />
-            <button type="button" onClick={() => setShowPw((v) => !v)} style={{ background: "transparent", border: "none", cursor: "pointer", color: C.sub, display: "flex" }}>{showPw ? <EyeOff size={13} /> : <Eye size={13} />}</button>
-          </div>
-        </td>
+        <td style={{ padding: "8px 10px", minWidth: 180 }}><PasswordField value={password} onChange={setPassword} placeholder="Leave blank to keep current" /></td>
         <td style={{ padding: "8px 10px", whiteSpace: "nowrap" }}>
           <div className="flex gap-1.5">
             <button onClick={save} disabled={busy} title="Save" style={{ color: C.teal, background: "transparent", border: "none", cursor: "pointer" }}><Check size={16} /></button>
@@ -137,10 +132,10 @@ function UserRow({ agent, onUpdate, onRemove }: { agent: Agent; onUpdate: (id: s
       </td>
       <td style={{ padding: "10px" }}><Chip color={teamColor(agent.team)} soft={agent.team === "Domestic" ? "#FBEAE4" : "#E7EDFB"}>{agent.team}</Chip></td>
       <td style={{ padding: "10px", fontSize: 13 }}>@{agent.username}</td>
-      <td style={{ padding: "10px" }}><PasswordReveal value={agent.password} /></td>
+      <td style={{ padding: "10px", fontSize: 12.5, color: C.sub }}>••••••••</td>
       <td style={{ padding: "10px", whiteSpace: "nowrap" }}>
         <div className="flex gap-1.5">
-          <button onClick={startEdit} title="Edit" style={{ color: C.sub, background: "transparent", border: "none", cursor: "pointer" }}><Pencil size={15} /></button>
+          <button onClick={startEdit} title="Edit / reset password" style={{ color: C.sub, background: "transparent", border: "none", cursor: "pointer" }}><Pencil size={15} /></button>
           <button onClick={remove} title="Remove" style={{ color: C.rose, background: "transparent", border: "none", cursor: "pointer" }}><Trash2 size={15} /></button>
         </div>
       </td>

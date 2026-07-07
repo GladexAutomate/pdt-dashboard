@@ -3,7 +3,7 @@ import { COLLECTIONS } from "./constants";
 import type {
   AppData, Agent, TaskRecord, LogEntry, KpiDef, ReportState, ColKey,
   Status, Priority, ProofItem, CommentEntry, ActivityEntry, LinkItem,
-  DailyTask, DailyEvent, DailyStatus
+  DailyTask, DailyEvent, DailyStatus, Team, LoginResult
 } from "./types";
 
 /* ---------- timestamp helpers (DB uses ISO strings, the app uses epoch ms) ---------- */
@@ -160,9 +160,8 @@ function dailyPatchToRow(patch: Partial<DailyTask>): Record<string, unknown> {
 
 /* ---------- full app data load ---------- */
 export async function fetchAppData(): Promise<AppData> {
-  const [agentsRes, adminRes, recordsRes, logsRes, kpiDefsRes, kpiProgressRes, reportsRes, dailyRes] = await Promise.all([
-    supabase.from("agents").select("*").order("id"),
-    supabase.from("admins").select("*").limit(1).maybeSingle(),
+  const [agentsRes, recordsRes, logsRes, kpiDefsRes, kpiProgressRes, reportsRes, dailyRes] = await Promise.all([
+    supabase.from("agents_public").select("*").order("id"),
     supabase.from("records").select("*"),
     supabase.from("logs").select("*").order("ts", { ascending: false }).limit(300),
     supabase.from("kpi_defs").select("*"),
@@ -170,14 +169,11 @@ export async function fetchAppData(): Promise<AppData> {
     supabase.from("reports").select("*"),
     supabase.from("daily_tasks").select("*")
   ]);
-  for (const res of [agentsRes, adminRes, recordsRes, logsRes, kpiDefsRes, kpiProgressRes, reportsRes, dailyRes]) {
+  for (const res of [agentsRes, recordsRes, logsRes, kpiDefsRes, kpiProgressRes, reportsRes, dailyRes]) {
     if (res.error) throw res.error;
   }
 
-  const agents: Agent[] = (agentsRes.data || []).map((r) => ({ id: r.id, name: r.name, team: r.team, username: r.username, password: r.password }));
-  const admin = adminRes.data
-    ? { username: adminRes.data.username, password: adminRes.data.password, name: adminRes.data.name }
-    : { username: "admin", password: "", name: "Supervisor / Manager" };
+  const agents: Agent[] = (agentsRes.data || []).map((r) => ({ id: r.id, name: r.name, team: r.team, username: r.username }));
 
   const byCol: Record<ColKey, TaskRecord[]> = { tasks: [], premium: [], gladex: [], tariff: [] };
   (recordsRes.data as RecordRow[] || []).forEach((row) => { byCol[row.collection].push(rowToRecord(row)); });
@@ -203,7 +199,7 @@ export async function fetchAppData(): Promise<AppData> {
 
   const daily: DailyTask[] = (dailyRes.data as DailyRow[] || []).map(rowToDaily).sort((a, b) => a.assignedAt - b.assignedAt);
 
-  return { agents, admin, tasks: byCol.tasks, premium: byCol.premium, gladex: byCol.gladex, tariff: byCol.tariff, daily, logs, kpi: { defs, progress }, reports, seeded: true };
+  return { agents, tasks: byCol.tasks, premium: byCol.premium, gladex: byCol.gladex, tariff: byCol.tariff, daily, logs, kpi: { defs, progress }, reports, seeded: true };
 }
 
 /* ---------- records ---------- */
@@ -273,22 +269,44 @@ export async function deleteDailyRow(id: string): Promise<void> {
   const { error } = await supabase.from("daily_tasks").delete().eq("id", id);
   if (error) throw error;
 }
-/* ---------- agents (user management) ---------- */
-export async function insertAgentRow(agent: Agent): Promise<void> {
-  const { error } = await supabase.from("agents").insert({ id: agent.id, name: agent.name, team: agent.team, username: agent.username, password: agent.password });
+/* ---------- auth & agents (user management) ----------
+   All credential reads/writes go through RPCs (see supabase/schema.sql) —
+   the client has no direct table access to `agents`/`admins` and never
+   sees a password or password hash. */
+export async function login(username: string, password: string): Promise<LoginResult | null> {
+  const { data, error } = await supabase.rpc("login", { p_username: username, p_password: password });
+  if (error) throw error;
+  return (data as LoginResult | null) ?? null;
+}
+
+export interface CreateAgentInput {
+  id: string;
+  name: string;
+  team: Team;
+  username: string;
+  password: string;
+}
+export async function createAgent(input: CreateAgentInput): Promise<void> {
+  const { error } = await supabase.rpc("create_agent", {
+    p_id: input.id, p_name: input.name, p_team: input.team, p_username: input.username, p_password: input.password
+  });
   if (error) throw error;
 }
-export async function updateAgentRow(id: string, patch: Partial<Agent>): Promise<void> {
-  const row: Record<string, unknown> = {};
-  if ("name" in patch) row.name = patch.name;
-  if ("team" in patch) row.team = patch.team;
-  if ("username" in patch) row.username = patch.username;
-  if ("password" in patch) row.password = patch.password;
-  const { error } = await supabase.from("agents").update(row).eq("id", id);
+
+export interface UpdateAgentInput {
+  name?: string;
+  team?: Team;
+  username?: string;
+  password?: string;
+}
+export async function updateAgentRow(id: string, patch: UpdateAgentInput): Promise<void> {
+  const { error } = await supabase.rpc("update_agent", {
+    p_id: id, p_name: patch.name ?? null, p_team: patch.team ?? null, p_username: patch.username ?? null, p_password: patch.password ?? null
+  });
   if (error) throw error;
 }
 export async function deleteAgentRow(id: string): Promise<void> {
-  const { error } = await supabase.from("agents").delete().eq("id", id);
+  const { error } = await supabase.rpc("delete_agent", { p_id: id });
   if (error) throw error;
 }
 

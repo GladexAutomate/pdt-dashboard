@@ -5,10 +5,10 @@ import {
 
 import { C } from "./lib/theme";
 import { TRACKERS, DONEISH, H, STATUS_META } from "./lib/constants";
-import { fetchAppData, insertRecord, updateRecordRow, deleteRecordRow, insertLog, upsertReport, setKpiProgressRow, insertKpiDefRow, updateKpiDefRow, deleteKpiDefRow, insertDailyRow, updateDailyRow, deleteDailyRow, subscribeToChanges, insertAgentRow, updateAgentRow, deleteAgentRow } from "./lib/api";
+import { fetchAppData, insertRecord, updateRecordRow, deleteRecordRow, insertLog, upsertReport, setKpiProgressRow, insertKpiDefRow, updateKpiDefRow, deleteKpiDefRow, insertDailyRow, updateDailyRow, deleteDailyRow, subscribeToChanges, createAgent, updateAgentRow, deleteAgentRow } from "./lib/api";
 import type {
   AppData, TaskRecord, Status, Team, ColKey, LogEntry, ReportState, Session,
-  LoginPayload, DetailTarget, Agent, ActivityEntry, CommentEntry, KpiDef,
+  LoginResult, DetailTarget, Agent, ActivityEntry, CommentEntry, KpiDef,
   DailyTask, DailyStatus
 } from "./lib/types";
 import { Login } from "./components/Login";
@@ -22,7 +22,7 @@ import { MonthlyReport } from "./components/MonthlyReport";
 import { Logs } from "./components/Logs";
 import { KpiDashboard } from "./components/KpiDashboard";
 import { DailyTasking } from "./components/DailyTasking";
-import { UserManagement, type NewAgentInput } from "./components/UserManagement";
+import { UserManagement, type NewAgentInput, type UpdateAgentInput } from "./components/UserManagement";
 import { todayKey, DAILY_LABEL } from "./lib/daily";
 
 type LogInput = Omit<LogEntry, "id" | "ts">;
@@ -193,33 +193,34 @@ export default function App() {
     deleteKpiDefRow(id).catch((e) => console.error("Failed to remove KPI", e));
   };
 
-  /* ---- user management ---- */
+  /* ---- user management ----
+     Uniqueness/validation happens inside the create_agent/update_agent
+     Postgres functions (see supabase/schema.sql) — that's the single source
+     of truth, so we just surface whatever error they raise. */
   const addAgent = async (input: NewAgentInput): Promise<string | null> => {
     const username = input.username.trim().toLowerCase();
-    if (!username || !input.password.trim()) return "Username and password are required.";
-    if (data?.agents.some((a) => a.username === username) || data?.admin.username === username) return "That username is already taken.";
-    const agent: Agent = { id: "a" + Date.now() + Math.random().toString(36).slice(2, 5), name: input.name.trim(), team: input.team, username, password: input.password.trim() };
+    if (!input.name.trim() || !username || !input.password.trim()) return "Name, username, and password are required.";
+    const id = "a" + Date.now() + Math.random().toString(36).slice(2, 5);
     try {
-      await insertAgentRow(agent);
+      await createAgent({ id, name: input.name.trim(), team: input.team, username, password: input.password.trim() });
     } catch (e) {
       return e instanceof Error ? e.message : "Failed to add user.";
     }
+    const agent: Agent = { id, name: input.name.trim(), team: input.team, username };
     persist((d) => ({ ...d, agents: [...d.agents, agent] }));
     log({ userId: actor().id, name: actor().name, role: actor().role, type: "create", detail: `Added user "${agent.name}"` });
     return null;
   };
-  const updateAgent = async (id: string, patch: Partial<Agent>): Promise<string | null> => {
-    const clean = { ...patch };
+  const updateAgent = async (id: string, patch: UpdateAgentInput): Promise<string | null> => {
+    const clean: UpdateAgentInput = { ...patch };
     if (clean.username) clean.username = clean.username.trim().toLowerCase();
-    if (clean.username && (data?.agents.some((a) => a.id !== id && a.username === clean.username) || data?.admin.username === clean.username)) {
-      return "That username is already taken.";
-    }
     try {
       await updateAgentRow(id, clean);
     } catch (e) {
       return e instanceof Error ? e.message : "Failed to update user.";
     }
-    persist((d) => ({ ...d, agents: d.agents.map((a) => (a.id === id ? { ...a, ...clean } : a)) }));
+    const { password: _password, ...displayPatch } = clean;
+    persist((d) => ({ ...d, agents: d.agents.map((a) => (a.id === id ? { ...a, ...displayPatch } : a)) }));
     log({ userId: actor().id, name: actor().name, role: actor().role, type: "status", detail: `Updated user "${clean.name || data?.agents.find((a) => a.id === id)?.name}"` });
     return null;
   };
@@ -287,13 +288,12 @@ export default function App() {
     log({ userId: actor().id, name: actor().name, role: actor().role, type: publish ? "publish" : "complete", detail: `${publish ? "Published" : "Completed"} "${t?.title}"` });
   };
 
-  const doLogin = (user: LoginPayload) => {
-    const isAdminLogin = "role" in user && user.role === "admin";
-    const sess: Session = isAdminLogin
-      ? { role: "admin", name: data?.admin.name || "Supervisor / Manager" }
-      : { role: "agent", agentId: (user as Agent).id, name: (user as Agent).name };
+  const doLogin = (result: LoginResult) => {
+    const sess: Session = result.role === "admin"
+      ? { role: "admin", name: result.name }
+      : { role: "agent", agentId: result.id, name: result.name };
     setSession(sess); setAdminTab("home"); setAgentTab("home"); setSelTeam(null); setSelAgent(null);
-    log({ userId: isAdminLogin ? "admin" : (user as Agent).id, name: sess.name, role: sess.role, type: "login", detail: "Signed in" });
+    log({ userId: result.role === "admin" ? "admin" : result.id, name: sess.name, role: sess.role, type: "login", detail: "Signed in" });
   };
 
   if (loading) return <div style={{ padding: 40, color: C.sub, fontFamily: "ui-sans-serif, system-ui" }}>Loading dashboard…</div>;
@@ -321,7 +321,7 @@ export default function App() {
       width: "100%",
     }}>
       {!session ? (
-        <Login data={data} onLogin={doLogin} />
+        <Login onLogin={doLogin} />
       ) : session.role === "admin" ? (
         <Shell session={session} onLogout={() => setSession(null)}
           tabs={[["home", "Dashboard", <LayoutDashboard size={16} />], ["teams", "Teams", <Users size={16} />], ["daily", "Daily Tasking", <CalendarCheck size={16} />], ["users", "Users", <UserCog size={16} />], ["kpi", "KPI Targets", <Target size={16} />], ["premium", "PREMIUM", <Sparkles size={16} />], ["gladex", "GLADEX", <Package size={16} />], ["tariff", "Tariff", <FileText size={16} />], ["report", "Monthly Report", <Gauge size={16} />], ["logs", "Logs", <ScrollText size={16} />]]}

@@ -1,26 +1,24 @@
 import { useState } from "react";
 import { Package, User, Lock, ChevronRight, MapPin, Globe, Eye, EyeOff } from "lucide-react";
-import { C, inputStyle, teamColor } from "../lib/theme";
+import { C, inputStyle } from "../lib/theme";
 import { Chip, Btn, Field } from "./ui";
-import type { AppData, LoginPayload, Team } from "../lib/types";
-
-interface LoginAccount {
-  role?: string;
-  username: string;
-  password: string;
-  name: string;
-  id?: string;
-  team?: Team;
-}
+import { login } from "../lib/api";
+import type { LoginResult } from "../lib/types";
 
 /* ---------------- Login ---------------- */
-export function Login({ data, onLogin }: { data: AppData; onLogin: (payload: LoginPayload) => void }) {
-  const [u, setU] = useState(""); const [p, setP] = useState(""); const [err, setErr] = useState(""); const [showPw, setShowPw] = useState(false);
-  const accounts: LoginAccount[] = [{ role: "admin", ...data.admin }, ...data.agents];
-  const submit = () => {
-    const found = accounts.find((a) => a.username === u.trim().toLowerCase() && a.password === p);
-    if (!found) { setErr("Incorrect username or password. Try again."); return; }
-    onLogin(found.role === "admin" ? { role: "admin" } : (found as unknown as LoginPayload));
+export function Login({ onLogin }: { onLogin: (result: LoginResult) => void }) {
+  const [u, setU] = useState(""); const [p, setP] = useState(""); const [err, setErr] = useState(""); const [showPw, setShowPw] = useState(false); const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    if (!u.trim() || !p || busy) return;
+    setErr(""); setBusy(true);
+    try {
+      const result = await login(u.trim(), p);
+      if (!result) { setErr("Incorrect username or password. Try again."); setBusy(false); return; }
+      onLogin(result);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Something went wrong. Try again.");
+      setBusy(false);
+    }
   };
   return (
     <div className="flex" style={{ minHeight: "100vh" }}>
@@ -66,18 +64,7 @@ export function Login({ data, onLogin }: { data: AppData; onLogin: (payload: Log
               </div>
             </Field>
             {err && <div style={{ color: C.rose, fontSize: 12.5 }}>{err}</div>}
-            <div className="pt-1"><Btn onClick={submit} kind="primary">Sign in <ChevronRight size={15} /></Btn></div>
-          </div>
-          <div style={{ marginTop: 22, paddingTop: 18, borderTop: `1px dashed ${C.line}` }}>
-            <div style={{ fontSize: 11, color: C.sub, fontWeight: 600, letterSpacing: 0.4, textTransform: "uppercase", marginBottom: 8 }}>Demo accounts — tap to fill</div>
-            <div className="flex flex-wrap gap-1.5">
-              <button onClick={() => { setU(data.admin.username); setP(data.admin.password); }} className="font-semibold" style={{ fontSize: 12, padding: "5px 10px", borderRadius: 8, border: `1px solid ${C.line}`, background: C.ink, color: "#fff" }}>admin</button>
-              {data.agents.map((a) => (
-                <button key={a.id} onClick={() => { setU(a.username); setP(a.password); }} className="font-semibold"
-                  style={{ fontSize: 12, padding: "5px 10px", borderRadius: 8, border: `1px solid ${C.line}`, background: "#fff", color: teamColor(a.team) }}>{a.name}</button>
-              ))}
-            </div>
-            <div style={{ fontSize: 11.5, color: C.sub, marginTop: 8 }}>Agents password: <b>pdt123</b> · Admin: <b>admin123</b></div>
+            <div className="pt-1"><Btn onClick={submit} kind="primary" disabled={busy}>{busy ? "Signing in…" : "Sign in"} <ChevronRight size={15} /></Btn></div>
           </div>
         </div>
       </div>
