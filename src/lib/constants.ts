@@ -10,7 +10,7 @@ import type { Team, Status, Priority, StyleMeta, TrackerConfig, ColKey } from ".
 export const CATEGORIES = ["BOT", "Website", "Lakbayhub", "Land arrangement", "Collectives"];
 export const DEPARTMENTS = ["Product Dev", "Operations", "Marketing", "Tech", "Sales", "Finance"];
 export const DESTINATIONS = ["Boracay", "Cebu", "Palawan", "Tokyo", "Bangkok", "Singapore", "Bali", "Seoul", "El Nido"];
-export const COLLECTIONS: ColKey[] = ["tasks", "premium", "gladex", "tariff"];
+export const COLLECTIONS: ColKey[] = ["tasks", "premium", "gladex", "tariff", "daily"];
 export const PROJECT_COLS: ColKey[] = ["premium", "gladex", "tariff"];
 
 export interface KpiStaffEntry {

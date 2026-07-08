@@ -6,9 +6,9 @@ import {
 } from "lucide-react";
 import { C, card, catC, teamColor, inputStyle } from "../lib/theme";
 import { CATEGORIES, PRIORITIES, PRIORITY_META, STATUS_META, STATUS_ORDER, DEAD, DONEISH, H } from "../lib/constants";
-import { agentStats, speedLabel, pct, actualHrs, speedRatio, dueMeta, fmtDay, fromDateInput } from "../lib/helpers";
+import { agentStats, speedLabel, pct, actualHrs, speedRatio, dueMeta, fmtDay, fromDateInput, flattenRecords } from "../lib/helpers";
 import { Avatar, Chip, Btn, Field, MiniStat, ProgressBar, StatusSelect } from "./ui";
-import type { Agent, AppData, TaskRecord, Status, Priority } from "../lib/types";
+import type { Agent, AppData, TaskRecord, Status, Priority, ColKey } from "../lib/types";
 
 export interface CompletePayload {
   hours: number;
@@ -21,23 +21,27 @@ interface MemberDetailProps {
   agent: Agent;
   data: AppData;
   onBack?: () => void;
-  addTask?: (t: Partial<TaskRecord>) => void;
-  completeTask: (id: string, payload: CompletePayload) => void;
-  deleteTask?: (id: string) => void;
-  startTask: (id: string) => void;
-  setStatus: (id: string, status: Status) => void;
-  openDetail: (id: string) => void;
+  addRec?: (col: ColKey, r: Partial<TaskRecord>) => void;
+  completeRec: (col: ColKey, id: string, payload: CompletePayload) => void;
+  deleteRec?: (col: ColKey, id: string) => void;
+  setRecStatus: (col: ColKey, id: string, status: Status) => void;
+  openDetail: (col: ColKey, id: string) => void;
   isAdmin: boolean;
   selfView?: boolean;
 }
 
-/* ---------------- Member detail (admin + agent self) ---------------- */
-export function MemberDetail({ agent, data, onBack, addTask, completeTask, deleteTask, startTask, setStatus, openDetail, isAdmin, selfView }: MemberDetailProps) {
+/* ---------------- Member detail (admin + agent self) ----------------
+   "My work" = the agent's regular tasks plus their daily tasks — both are
+   just TaskRecords, distinguished by _col (stamped by flattenRecords), so
+   each row's actions route back to its own collection ("tasks" or "daily").
+   PREMIUM/GLADEX/Tariff stay out of this view — they have their own tabs. */
+export function MemberDetail({ agent, data, onBack, addRec, completeRec, deleteRec, setRecStatus, openDetail, isAdmin, selfView }: MemberDetailProps) {
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<string | null>(null); // task id
-  const s = useMemo(() => agentStats(agent, data.tasks), [data, agent]);
+  const pool = useMemo(() => flattenRecords(data).filter((r) => r._col === "tasks" || r._col === "daily"), [data]);
+  const s = useMemo(() => agentStats(agent, pool), [pool, agent]);
   const sp = speedLabel(s.avgSpeed);
-  const tasks = data.tasks.filter((t) => t.agentId === agent.id);
+  const tasks = pool.filter((t) => t.agentId === agent.id);
   const special = tasks.filter((t) => t.special && !DEAD(t.status));
   const sorted = [...tasks].sort((a, b) => (STATUS_ORDER[a.status] - STATUS_ORDER[b.status]) || ((a.dueDate || Infinity) - (b.dueDate || Infinity)));
 
@@ -73,7 +77,7 @@ export function MemberDetail({ agent, data, onBack, addTask, completeTask, delet
         </div>
       </div>
 
-      {isAdmin && showAdd && <AddTaskForm agent={agent} onAdd={(t) => { addTask?.({ ...t, agentId: agent.id }); setShowAdd(false); }} onCancel={() => setShowAdd(false)} />}
+      {isAdmin && showAdd && <AddTaskForm agent={agent} onAdd={(t) => { addRec?.("tasks", { ...t, agentId: agent.id }); setShowAdd(false); }} onCancel={() => setShowAdd(false)} />}
 
       {special.length > 0 && (
         <div style={{ ...card, padding: 14, marginBottom: 14, borderColor: C.gold, background: "#FFFBEF" }}>
@@ -91,12 +95,16 @@ export function MemberDetail({ agent, data, onBack, addTask, completeTask, delet
       </div>
       <div className="space-y-2.5">
         {sorted.length === 0 && <div style={{ ...card, padding: 18, color: C.sub, fontSize: 13.5 }}>No tasks assigned yet.</div>}
-        {sorted.map((t) => (
-          <TaskRow key={t.id} t={t} isAdmin={isAdmin} selfView={selfView} setStatus={setStatus} openDetail={openDetail}
-            onStart={() => startTask(t.id)} onDelete={isAdmin && deleteTask ? () => deleteTask(t.id) : null}
-            onEdit={() => setEditing(editing === t.id ? null : t.id)} editing={editing === t.id}
-            onComplete={(payload) => { completeTask(t.id, payload); setEditing(null); }} />
-        ))}
+        {sorted.map((t) => {
+          const col = t._col || "tasks";
+          return (
+            <TaskRow key={t.id} t={t} isAdmin={isAdmin} selfView={selfView}
+              setStatus={(id, st) => setRecStatus(col, id, st)} openDetail={(id) => openDetail(col, id)}
+              onStart={() => setRecStatus(col, t.id, "in_progress")} onDelete={isAdmin && deleteRec ? () => deleteRec(col, t.id) : null}
+              onEdit={() => setEditing(editing === t.id ? null : t.id)} editing={editing === t.id}
+              onComplete={(payload) => { completeRec(col, t.id, payload); setEditing(null); }} />
+          );
+        })}
       </div>
     </div>
   );

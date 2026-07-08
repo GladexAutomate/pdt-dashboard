@@ -5,11 +5,10 @@ import {
 
 import { C } from "./lib/theme";
 import { TRACKERS, DONEISH, H, STATUS_META } from "./lib/constants";
-import { fetchAppData, insertRecord, updateRecordRow, deleteRecordRow, insertLog, upsertReport, setKpiProgressRow, insertKpiDefRow, updateKpiDefRow, deleteKpiDefRow, insertDailyRow, updateDailyRow, deleteDailyRow, subscribeToChanges, createAgent, updateAgentRow, deleteAgentRow } from "./lib/api";
+import { fetchAppData, insertRecord, updateRecordRow, deleteRecordRow, insertLog, upsertReport, setKpiProgressRow, insertKpiDefRow, updateKpiDefRow, deleteKpiDefRow, subscribeToChanges, createAgent, updateAgentRow, deleteAgentRow } from "./lib/api";
 import type {
   AppData, TaskRecord, Status, Team, ColKey, LogEntry, ReportState, Session,
-  LoginResult, DetailTarget, Agent, ActivityEntry, CommentEntry, KpiDef,
-  DailyTask, DailyStatus
+  LoginResult, DetailTarget, Agent, ActivityEntry, CommentEntry, KpiDef
 } from "./lib/types";
 import { Login } from "./components/Login";
 import { Shell } from "./components/Shell";
@@ -23,7 +22,6 @@ import { Logs } from "./components/Logs";
 import { KpiDashboard } from "./components/KpiDashboard";
 import { DailyTasking } from "./components/DailyTasking";
 import { UserManagement, type NewAgentInput, type UpdateAgentInput } from "./components/UserManagement";
-import { todayKey, DAILY_LABEL } from "./lib/daily";
 
 type LogInput = Omit<LogEntry, "id" | "ts">;
 
@@ -110,7 +108,7 @@ export default function App() {
       if (!t.startedAt) patch.startedAt = t.startDate || (Date.now() - (t.estimatedHours || 4) * H);
     }
     if (status === "in_progress" && !t.startedAt) patch.startedAt = Date.now();
-    const entry: ActivityEntry = { id: actId(), type: "status", text: `Status → ${STATUS_META[status].txt}`, by: actor().name, role: actor().role, ts: Date.now() };
+    const entry: ActivityEntry = { id: actId(), type: "status", text: `Status → ${STATUS_META[status].txt}`, by: actor().name, role: actor().role, ts: Date.now(), status };
     patch.activity = [...(t.activity || []), entry];
 
     persistCol(col, (l) => l.map((x) => (x.id === id ? { ...x, ...patch } : x)));
@@ -236,55 +234,20 @@ export default function App() {
     return null;
   };
 
-  /* ---- daily tasking ---- */
-  const addDaily = (agentId: string, title: string, opts: { date?: string } = {}) => {
-    const t = title.trim();
-    if (!t) return;
-    const now = Date.now();
-    const d: DailyTask = {
-      id: "d" + now + Math.random().toString(36).slice(2, 5),
-      agentId, title: t, date: opts.date || todayKey(), status: "assigned",
-      assignedBy: actor().name, assignedAt: now, startedAt: null, completedAt: null,
-      timeline: [{ ts: now, action: "assigned", label: `Assigned ${t}` }]
-    };
-    persist((prev) => ({ ...prev, daily: [...prev.daily, d] }));
-    insertDailyRow(d).catch((e) => console.error("Failed to save daily task", e));
-    log({ userId: actor().id, name: actor().name, role: actor().role, type: "create", detail: `Assigned daily task "${t}" to ${data?.agents.find((a) => a.id === agentId)?.name || "—"}` });
-  };
-  const setDailyStatus = (id: string, status: DailyStatus) => {
-    const cur = data?.daily.find((x) => x.id === id);
-    if (!cur) return;
-    const now = Date.now();
-    const patch: Partial<DailyTask> = { status };
-    if (status === "in_progress" && !cur.startedAt) patch.startedAt = now;
-    if ((status === "completed" || status === "published") && !cur.completedAt) patch.completedAt = now;
-    patch.timeline = [...(cur.timeline || []), { ts: now, action: status, label: `${DAILY_LABEL[status]} ${cur.title}` }];
-    persist((prev) => ({ ...prev, daily: prev.daily.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
-    updateDailyRow(id, patch).catch((e) => console.error("Failed to update daily task", e));
-    log({ userId: actor().id, name: actor().name, role: actor().role, type: "status", detail: `${DAILY_LABEL[status]} daily task "${cur.title}"` });
-  };
-  const deleteDaily = (id: string) => {
-    persist((prev) => ({ ...prev, daily: prev.daily.filter((x) => x.id !== id) }));
-    deleteDailyRow(id).catch((e) => console.error("Failed to delete daily task", e));
-  };
-
-  /* ---- task-specific wrappers (keep existing components working) ---- */
-  const addTask = (t: Partial<TaskRecord>) => {
-    if (t.category === "Daily Task" && t.agentId) { addDaily(t.agentId, t.title || "", {}); return; }
-    addRec("tasks", t);
-  };  
+  /* ---- task-specific wrappers (keep existing components working) ----
+     Daily tasks are just addRec("daily", ...) etc. — see DailyTasking.tsx,
+     which is wired up via trackerProps("daily") below like every other
+     collection. */
   const updateTask = (id: string, patch: Partial<TaskRecord>) => updateRec("tasks", id, patch);
   const setStatus = (id: string, status: Status) => setRecStatus("tasks", id, status);
   const reassignTask = (id: string, n: string) => reassignRec("tasks", id, n);
-  const deleteTask = (id: string) => deleteRec("tasks", id);
-  const startTask = (id: string) => updateRec("tasks", id, { status: "in_progress", startedAt: Date.now() });
-  const completeTask = (id: string, { hours, itemsTotal, itemsError, publish }: CompletePayload) => {
+  const completeRec = (col: ColKey, id: string, { hours, itemsTotal, itemsError, publish }: CompletePayload) => {
     const now = Date.now();
     const status: Status = publish ? "published" : "completed";
     const patch: Partial<TaskRecord> = { status, completedAt: now, completedBy: actor().name, progress: 100, startedAt: now - Math.max(hours, 0.05) * H, itemsTotal, itemsError, updatedAt: now, updatedBy: actor().name };
-    persistCol("tasks", (l) => l.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+    persistCol(col, (l) => l.map((t) => (t.id === id ? { ...t, ...patch } : t)));
     updateRecordRow(id, patch).catch((e) => console.error("Failed to complete task", e));
-    const t = data?.tasks.find((x) => x.id === id);
+    const t = data?.[col]?.find((x) => x.id === id);
     log({ userId: actor().id, name: actor().name, role: actor().role, type: publish ? "publish" : "complete", detail: `${publish ? "Published" : "Completed"} "${t?.title}"` });
   };
 
@@ -327,7 +290,7 @@ export default function App() {
           tabs={[["home", "Dashboard", <LayoutDashboard size={16} />], ["teams", "Teams", <Users size={16} />], ["daily", "Daily Tasking", <CalendarCheck size={16} />], ["users", "Users", <UserCog size={16} />], ["kpi", "KPI Targets", <Target size={16} />], ["premium", "PREMIUM", <Sparkles size={16} />], ["gladex", "GLADEX", <Package size={16} />], ["tariff", "Tariff", <FileText size={16} />], ["report", "Monthly Report", <Gauge size={16} />], ["logs", "Logs", <ScrollText size={16} />]]}
           active={adminTab} setActive={(t) => { setAdminTab(t); setSelTeam(null); setSelAgent(null); }}>
           {adminTab === "home" && <AdminHome data={data} go={(team) => { setAdminTab("teams"); setSelTeam(team as Team); }} />}
-            {adminTab === "daily" && <DailyTasking data={data} isAdmin meId={undefined} addDaily={addDaily} setDailyStatus={setDailyStatus} deleteDaily={deleteDaily} />}
+            {adminTab === "daily" && <DailyTasking {...trackerProps("daily")} isAdmin />}
           {adminTab === "users" && <UserManagement data={data} addAgent={addAgent} updateAgent={updateAgent} removeAgent={removeAgent} />}
           {adminTab === "kpi" && <KpiDashboard data={data} isAdmin setKpi={setKpiValue} addDef={addKpiDef} updateDef={updateKpiDef} removeDef={removeKpiDef} />}
           {adminTab === "logs" && <Logs logs={data.logs} />}
@@ -337,7 +300,8 @@ export default function App() {
           {adminTab === "report" && <MonthlyReport {...reportProps} />}
           {adminTab === "teams" && (
             selAgent ? <MemberDetail agent={data.agents.find((a) => a.id === selAgent)!} data={data}
-              onBack={() => setSelAgent(null)} addTask={addTask} completeTask={completeTask} deleteTask={deleteTask} startTask={startTask} setStatus={setStatus} openDetail={openTaskDetail} isAdmin />
+              onBack={() => setSelAgent(null)} addRec={addRec} completeRec={completeRec} deleteRec={deleteRec} setRecStatus={setRecStatus}
+              openDetail={(col, id) => setDetail({ col, id })} isAdmin />
               : <Teams data={data} selTeam={selTeam} setSelTeam={setSelTeam} openMember={setSelAgent} setStatus={setStatus} updateTask={updateTask} reassignTask={reassignTask} openDetail={openTaskDetail} />
           )}
         </Shell>
@@ -347,8 +311,8 @@ export default function App() {
           active={agentTab} setActive={setAgentTab}>
           {agentTab === "home"
             ? <MemberDetail agent={data.agents.find((a) => a.id === session.agentId)!} data={data}
-                completeTask={completeTask} startTask={startTask} setStatus={setStatus} openDetail={openTaskDetail} isAdmin={false} selfView />
-            : agentTab === "daily" ? <DailyTasking data={data} isAdmin={false} meId={session.agentId} addDaily={addDaily} setDailyStatus={setDailyStatus} deleteDaily={deleteDaily} />
+                completeRec={completeRec} setRecStatus={setRecStatus} openDetail={(col, id) => setDetail({ col, id })} isAdmin={false} selfView />
+            : agentTab === "daily" ? <DailyTasking {...trackerProps("daily")} isAdmin={false} />
             : agentTab === "kpi" ? <KpiDashboard data={data} isAdmin={false} setKpi={setKpiValue} />
             : agentTab === "premium" ? <TrackerView col="premium" config={TRACKERS.premium} {...trackerProps("premium")} />
             : agentTab === "gladex" ? <TrackerView col="gladex" config={TRACKERS.gladex} {...trackerProps("gladex")} />

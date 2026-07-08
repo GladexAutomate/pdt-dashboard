@@ -1,9 +1,9 @@
-import type { DailyTask, DailyStatus, DailyEvent } from "./types";
+import { H, STATUS_META, DONEISH } from "./constants";
+import type { TaskRecord } from "./types";
 
 /* framework-free helpers for the Daily Tasking module.
-   Kept separate from theme/constants so it can be imported anywhere. */
-
-export const HOUR = 3600000;
+   Daily tasks are just TaskRecords (collection "daily") — these helpers only
+   deal with the day-grouping/EOD-report parts that are specific to that view. */
 
 export const dateKey = (d = new Date()): string =>
   d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
@@ -15,39 +15,30 @@ export const fmtDayLabel = (key: string): string => {
   return new Date(y, m - 1, dd).toLocaleDateString("en-US", { weekday: "short", month: "long", day: "numeric", year: "numeric" });
 };
 
-export const DAILY_LABEL: Record<DailyStatus, string> = {
-  assigned: "Assigned", in_progress: "Started", completed: "Completed", published: "Published"
-};
-export const DAILY_DONE = (s: DailyStatus): boolean => s === "completed" || s === "published";
-
-export const DAILY_META: Record<DailyStatus, { txt: string; c: string; soft: string }> = {
-  assigned: { txt: "Assigned", c: "#5C6880", soft: "#EDF0F6" },
-  in_progress: { txt: "In progress", c: "#D9852A", soft: "#FBEEDB" },
-  completed: { txt: "Completed", c: "#1F2C4D", soft: "#E7EBF3" },
-  published: { txt: "Published", c: "#0E9E8E", soft: "#E1F3F0" }
-};
-export const dailyDotColor = (a: string): string =>
-  a === "published" ? "#0E9E8E" : a === "completed" ? "#1F2C4D" : a === "in_progress" ? "#D9852A" : "#5C6880";
-
-export type TimelineEntry = DailyEvent & { title: string };
-export function buildDayTimeline(tasks: DailyTask[]): TimelineEntry[] {
+export interface TimelineEntry {
+  ts: number;
+  text: string;
+  title: string;
+  color: string;
+}
+export function buildDayTimeline(tasks: TaskRecord[]): TimelineEntry[] {
   return tasks
-    .flatMap((t) => (t.timeline || []).map((e) => ({ ...e, title: t.title })))
+    .flatMap((t) => (t.activity || []).map((e) => ({ ts: e.ts, text: e.text, title: t.title, color: e.status ? STATUS_META[e.status].c : "#5C6880" })))
     .sort((a, b) => a.ts - b.ts);
 }
 
 export interface Eod {
-  completed: DailyTask[];
-  published: DailyTask[];
-  pending: DailyTask[];
+  completed: TaskRecord[];
+  published: TaskRecord[];
+  pending: TaskRecord[];
   hours: number | null;
 }
-export function eodOf(tasks: DailyTask[]): Eod {
-  const completed = tasks.filter((t) => DAILY_DONE(t.status));
+export function eodOf(tasks: TaskRecord[]): Eod {
+  const completed = tasks.filter((t) => DONEISH(t.status));
   const published = tasks.filter((t) => t.status === "published");
-  const pending = tasks.filter((t) => !DAILY_DONE(t.status));
+  const pending = tasks.filter((t) => !DONEISH(t.status));
   const tl = buildDayTimeline(tasks);
-  const hours = tl.length ? (tl[tl.length - 1].ts - tl[0].ts) / HOUR : null;
+  const hours = tl.length ? (tl[tl.length - 1].ts - tl[0].ts) / H : null;
   return { completed, published, pending, hours };
 }
 export const fmtHours = (h: number | null): string =>

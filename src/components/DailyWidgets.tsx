@@ -1,22 +1,24 @@
 import { CalendarCheck, Activity, Users } from "lucide-react";
 import { C, card, teamColor } from "../lib/theme";
+import { DONEISH } from "../lib/constants";
+import { toDateInput } from "../lib/helpers";
 import type { AppData, Team } from "../lib/types";
-import { todayKey, fmtDayLabel, fmtClock, buildDayTimeline, dailyDotColor, DAILY_DONE } from "../lib/daily";
+import { todayKey, fmtDayLabel, fmtClock, buildDayTimeline } from "../lib/daily";
 
 /** "Today · Daily Tasking" widget block. Rendered near the top of AdminHome. */
 export function DailyWidgets({ data }: { data: AppData }) {
   const tk = todayKey();
-  const all = (data.daily || []).filter((d) => d.date === tk);
+  const all = (data.daily || []).filter((d) => toDateInput(d.dueDate) === tk);
   const assigned = all.length;
-  const completed = all.filter((d) => DAILY_DONE(d.status)).length;
+  const completed = all.filter((d) => DONEISH(d.status)).length;
   const inprog = all.filter((d) => d.status === "in_progress").length;
-  const overdue = (data.daily || []).filter((d) => d.date < tk && !DAILY_DONE(d.status)).length;
+  const overdue = (data.daily || []).filter((d) => toDateInput(d.dueDate) < tk && !DONEISH(d.status)).length;
   const prod = assigned ? Math.round((completed / assigned) * 100) : 0;
   const recent = buildDayTimeline(all).slice(-6).reverse();
   const teamSummary = (["Domestic", "International"] as Team[]).map((team) => {
     const ids = new Set(data.agents.filter((a) => a.team === team).map((a) => a.id));
-    const ts = all.filter((d) => ids.has(d.agentId));
-    return { team, done: ts.filter((d) => DAILY_DONE(d.status)).length, total: ts.length };
+    const ts = all.filter((d) => d.agentId != null && ids.has(d.agentId));
+    return { team, done: ts.filter((d) => DONEISH(d.status)).length, total: ts.length };
   });
   const tiles: [string, string | number, string][] = [
     ["Assigned today", assigned, C.text],
@@ -50,8 +52,8 @@ export function DailyWidgets({ data }: { data: AppData }) {
             {recent.map((e, i) => (
               <div key={i} className="flex items-center gap-2" style={{ fontSize: 12.5 }}>
                 <span style={{ color: C.sub, fontVariantNumeric: "tabular-nums", minWidth: 62 }}>{fmtClock(e.ts)}</span>
-                <span style={{ width: 7, height: 7, borderRadius: 999, background: dailyDotColor(e.action), flexShrink: 0 }} />
-                <span>{e.label}</span>
+                <span style={{ width: 7, height: 7, borderRadius: 999, background: e.color, flexShrink: 0 }} />
+                <span>{e.title} — {e.text}</span>
               </div>
             ))}
           </div>

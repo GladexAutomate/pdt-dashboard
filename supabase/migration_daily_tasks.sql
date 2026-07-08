@@ -1,11 +1,9 @@
--- PDT Dashboard — incremental migration: Daily Tasking feature
+-- PDT Dashboard — OBSOLETE, do not run.
 --
--- SKIP THIS FILE if schema.sql already includes a "daily_tasks" table (it
--- does as of this writing) and you ran schema.sql fresh — you already have
--- everything this file adds. This is only for a database that was set up
--- from an OLDER schema.sql that predates Daily Tasking, so you can add just
--- the new table + policy + realtime without re-running everything else
--- (which would error on "policy already exists").
+-- Daily Tasking no longer uses a separate `daily_tasks` table at all — it's
+-- now just records with collection = 'daily' (see schema.sql). This file is
+-- kept only for history. If your database still has a `daily_tasks` table
+-- from before this change, run migration_unify_daily.sql instead.
 
 create table if not exists daily_tasks (
   id           text primary key,

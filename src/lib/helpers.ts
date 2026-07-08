@@ -1,5 +1,5 @@
 import { C } from "./theme";
-import { COLLECTIONS, D, H, DONEISH, DEAD } from "./constants";
+import { COLLECTIONS, PROJECT_COLS, D, H, DONEISH, DEAD } from "./constants";
 import type {
   TaskRecord, AppData, Agent, DueMeta, SpeedLabelMeta, Band,
   AgentStats, GroupStats, StaffMonthStats, KpiStatusMeta
@@ -26,7 +26,11 @@ export function relTime(ts: number | null | undefined): string {
   return Math.floor(s / 86400) + "d ago";
 }
 export const fmtDate = (ts: number | null | undefined): string => (ts ? new Date(ts).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—");
-export const toDateInput = (ms: number | null | undefined): string => (ms ? new Date(ms).toISOString().slice(0, 10) : "");
+export const toDateInput = (ms: number | null | undefined): string => {
+  if (!ms) return "";
+  const d = new Date(ms);
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+};
 export const fromDateInput = (s: string): number | null => (s ? new Date(s + "T00:00:00").getTime() : null);
 export const fmtDay = (ms: number | null | undefined): string => (ms ? new Date(ms).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" }) : "—");
 
@@ -37,7 +41,7 @@ export const inMonth = (ms: number | null | undefined, y: number, m: number): bo
 export const recInMonth = (r: TaskRecord, y: number, m: number): boolean => inMonth(r.startDate, y, m) || inMonth(r.completedAt, y, m) || inMonth(r.dueDate, y, m);
 export function flattenRecords(data: AppData): TaskRecord[] {
   const out: TaskRecord[] = [];
-  for (const col of COLLECTIONS) for (const r of (data[col] || [])) out.push({ ...r, _col: col, _isProject: col !== "tasks" });
+  for (const col of COLLECTIONS) for (const r of (data[col] || [])) out.push({ ...r, _col: col, _isProject: PROJECT_COLS.includes(col) });
   return out;
 }
 export function reassignCount(r: TaskRecord, y: number, m: number): number {

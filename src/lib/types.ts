@@ -6,28 +6,9 @@ export type Status =
 
 export type Priority = "high" | "medium" | "low";
 
-export type ColKey = "tasks" | "premium" | "gladex" | "tariff";
-
-export type DailyStatus = "assigned" | "in_progress" | "completed" | "published";
-
-export interface DailyEvent {
-  ts: number;
-  action: DailyStatus;
-  label: string;
-}
-
-export interface DailyTask {
-  id: string;
-  agentId: string;
-  title: string;
-  date: string; // YYYY-MM-DD
-  status: DailyStatus;
-  assignedBy: string;
-  assignedAt: number;
-  startedAt: number | null;
-  completedAt: number | null;
-  timeline: DailyEvent[];
-}
+// "daily" is just another collection of TaskRecord, same as tasks/premium/gladex/tariff —
+// this is what makes daily tasks automatically count in KPI/productivity math.
+export type ColKey = "tasks" | "premium" | "gladex" | "tariff" | "daily";
 
 export interface StyleMeta {
   txt: string;
@@ -67,6 +48,10 @@ export interface ActivityEntry {
   by: string;
   role: string;
   ts: number;
+  // populated only when type === "status" — lets UIs (e.g. Daily Tasking's
+  // per-day timeline) color-code by the specific status reached without
+  // parsing it back out of `text`.
+  status?: Status;
 }
 
 export interface LinkItem {
@@ -158,7 +143,7 @@ export interface AppData {
   premium: TaskRecord[];
   gladex: TaskRecord[];
   tariff: TaskRecord[];
-  daily: DailyTask[]; 
+  daily: TaskRecord[];
   logs: LogEntry[];
   reports: Record<string, ReportState>;
   kpi: KpiData;

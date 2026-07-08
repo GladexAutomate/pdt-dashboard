@@ -1,26 +1,32 @@
 import { useState } from "react";
 import {
-  CalendarCheck, Plus, Users, MapPin, Globe, Play, CheckCircle2, Send, Trash2, Clock, Activity, FileText
+  CalendarCheck, Plus, Users, MapPin, Globe, Play, CheckCircle2, Send, Trash2, Clock, Activity, FileText, Flag
 } from "lucide-react";
-import { C, card, teamColor, inputStyle } from "../lib/theme";
+import { C, card, catC, teamColor, inputStyle } from "../lib/theme";
+import { CATEGORIES, PRIORITIES, PRIORITY_META, STATUS_META, DONEISH, DEAD } from "../lib/constants";
+import { toDateInput, fromDateInput } from "../lib/helpers";
 import { Avatar, Chip, Btn, Field } from "./ui";
-import type { AppData, Agent, DailyTask, DailyStatus, Team } from "../lib/types";
-import {
-  todayKey, fmtDayLabel, fmtClock, DAILY_META, DAILY_DONE, dailyDotColor,
-  buildDayTimeline, eodOf, fmtHours
-} from "../lib/daily";
+import type { AppData, Agent, TaskRecord, Status, Priority, ColKey, Team } from "../lib/types";
+import { todayKey, fmtDayLabel, fmtClock, buildDayTimeline, eodOf, fmtHours } from "../lib/daily";
+
+const COL: ColKey = "daily";
 
 interface DailyTaskingProps {
   data: AppData;
   isAdmin: boolean;
   meId?: string;
-  addDaily: (agentId: string, title: string, opts?: { date?: string }) => void;
-  setDailyStatus: (id: string, status: DailyStatus) => void;
-  deleteDaily: (id: string) => void;
+  addRec: (col: ColKey, r: Partial<TaskRecord>) => void;
+  setRecStatus: (col: ColKey, id: string, status: Status) => void;
+  deleteRec: (col: ColKey, id: string) => void;
+  openDetail: (id: string) => void;
 }
 
-/* ---------------- Daily Tasking (admin: everyone · agent: own only) ---------------- */
-export function DailyTasking({ data, isAdmin, meId, addDaily, setDailyStatus, deleteDaily }: DailyTaskingProps) {
+/* ---------------- Daily Tasking (admin: everyone · agent: own only) ----------------
+   Daily tasks are ordinary TaskRecords with collection "daily" — same shape
+   (title/category/priority/status/etc.) as regular tasks, so they open in the
+   same TaskDetail drawer and count toward KPI/productivity like everything
+   else. This view just adds the day-by-day grouping + EOD report on top. */
+export function DailyTasking({ data, isAdmin, meId, addRec, setRecStatus, deleteRec, openDetail }: DailyTaskingProps) {
   const [date, setDate] = useState(todayKey());
   const [staffF, setStaffF] = useState("all");
   const [showAssign, setShowAssign] = useState(false);
@@ -28,7 +34,7 @@ export function DailyTasking({ data, isAdmin, meId, addDaily, setDailyStatus, de
 
   const scope = isAdmin ? data.agents : data.agents.filter((a) => a.id === meId);
   const shown = isAdmin && staffF !== "all" ? scope.filter((a) => a.id === staffF) : scope;
-  const dailyFor = (agentId: string) => (data.daily || []).filter((d) => d.date === date && d.agentId === agentId);
+  const dailyFor = (agentId: string) => (data.daily || []).filter((d) => d.agentId === agentId && toDateInput(d.dueDate) === date);
 
   return (
     <div className="space-y-4">
@@ -42,14 +48,15 @@ export function DailyTasking({ data, isAdmin, meId, addDaily, setDailyStatus, de
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {isAdmin && <Btn sm kind="teal" icon={<Plus size={14} />} onClick={() => setShowAssign((v) => !v)}>Assign daily task</Btn>}
+          {!isAdmin && meId && <Btn sm kind="teal" icon={<Plus size={14} />} onClick={() => setShowAssign((v) => !v)}>Add task</Btn>}
           {isAdmin && <Btn sm kind="ghost" icon={<Users size={14} />} onClick={() => setShowTeamReport((v) => !v)}>Team daily report</Btn>}
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "7px 10px" }} />
         </div>
       </div>
 
-      {isAdmin && showAssign && (
-        <AssignDailyForm agents={data.agents} date={date}
-          onAssign={(agentId, title) => { addDaily(agentId, title, { date }); }}
+      {showAssign && (isAdmin || meId) && (
+        <AssignDailyForm agents={data.agents} date={date} fixedAgentId={isAdmin ? undefined : meId}
+          onAssign={(r) => { addRec(COL, r); }}
           onClose={() => setShowAssign(false)} />
       )}
 
@@ -68,28 +75,48 @@ export function DailyTasking({ data, isAdmin, meId, addDaily, setDailyStatus, de
       {shown.map((staff) => (
         <DailyStaffCard key={staff.id} staff={staff} tasks={dailyFor(staff.id)} date={date}
           canEdit={isAdmin || staff.id === meId} isAdmin={isAdmin}
-          onStatus={setDailyStatus} onDelete={deleteDaily} />
+          onStatus={(id, status) => setRecStatus(COL, id, status)} onDelete={(id) => deleteRec(COL, id)} onOpen={openDetail} />
       ))}
       {shown.length === 0 && <div style={{ ...card, padding: 18, color: C.sub, fontSize: 13.5 }}>No staff to show.</div>}
 
-      {!isAdmin && <div style={{ fontSize: 12, color: C.sub, textAlign: "center", paddingBottom: 4 }}>View is limited to your own tasks. Daily tasks are assigned by the supervisor.</div>}
+      {!isAdmin && <div style={{ fontSize: 12, color: C.sub, textAlign: "center", paddingBottom: 4 }}>View is limited to your own tasks. You can add your own or wait for one assigned by the supervisor.</div>}
     </div>
   );
 }
 
-function AssignDailyForm({ agents, date, onAssign, onClose }: {
-  agents: Agent[]; date: string; onAssign: (agentId: string, title: string) => void; onClose: () => void;
+function AssignDailyForm({ agents, date, fixedAgentId, onAssign, onClose }: {
+  agents: Agent[]; date: string; fixedAgentId?: string; onAssign: (r: Partial<TaskRecord>) => void; onClose: () => void;
 }) {
-  const [agentId, setAgentId] = useState(agents[0]?.id || "");
+  const [agentId, setAgentId] = useState(fixedAgentId || agents[0]?.id || "");
   const [title, setTitle] = useState("");
+  const [category, setCategory] = useState(CATEGORIES[0]);
+  const [priority, setPriority] = useState<Priority>("medium");
   const ok = !!agentId && title.trim().length > 1;
+
+  const submit = () => {
+    onAssign({ agentId, title: title.trim(), category, priority, startDate: fromDateInput(date), dueDate: fromDateInput(date) });
+    setTitle("");
+  };
+
   return (
     <div style={{ ...card, padding: 16, borderColor: C.teal }}>
-      <div className="flex items-center gap-2 mb-3"><Plus size={16} color={C.teal} /><span style={{ fontWeight: 700, fontSize: 14 }}>Assign a daily task · {fmtDayLabel(date)}</span></div>
+      <div className="flex items-center gap-2 mb-3"><Plus size={16} color={C.teal} /><span style={{ fontWeight: 700, fontSize: 14 }}>{fixedAgentId ? "Add a daily task" : "Assign a daily task"} · {fmtDayLabel(date)}</span></div>
       <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))" }}>
-        <Field label="Staff member">
-          <select value={agentId} onChange={(e) => setAgentId(e.target.value)} style={inputStyle}>
-            {agents.map((a) => <option key={a.id} value={a.id}>{a.name} · {a.team}</option>)}
+        {!fixedAgentId && (
+          <Field label="Staff member">
+            <select value={agentId} onChange={(e) => setAgentId(e.target.value)} style={inputStyle}>
+              {agents.map((a) => <option key={a.id} value={a.id}>{a.name} · {a.team}</option>)}
+            </select>
+          </Field>
+        )}
+        <Field label="Category">
+          <select value={category} onChange={(e) => setCategory(e.target.value)} style={inputStyle}>
+            {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+          </select>
+        </Field>
+        <Field label="Priority">
+          <select value={priority} onChange={(e) => setPriority(e.target.value as Priority)} style={inputStyle}>
+            {PRIORITIES.map((p) => <option key={p} value={p}>{PRIORITY_META[p].txt}</option>)}
           </select>
         </Field>
         <div style={{ gridColumn: "1 / -1" }}>
@@ -97,21 +124,21 @@ function AssignDailyForm({ agents, date, onAssign, onClose }: {
         </div>
       </div>
       <div className="flex gap-2 mt-3">
-        <Btn sm kind="teal" disabled={!ok} onClick={() => { onAssign(agentId, title); setTitle(""); }}>Assign task</Btn>
+        <Btn sm kind="teal" disabled={!ok} onClick={submit}>{fixedAgentId ? "Add task" : "Assign task"}</Btn>
         <Btn sm kind="ghost" onClick={onClose}>Close</Btn>
       </div>
     </div>
   );
 }
 
-function DailyStaffCard({ staff, tasks, date, canEdit, isAdmin, onStatus, onDelete }: {
-  staff: Agent; tasks: DailyTask[]; date: string; canEdit: boolean; isAdmin: boolean;
-  onStatus: (id: string, status: DailyStatus) => void; onDelete: (id: string) => void;
+function DailyStaffCard({ staff, tasks, date, canEdit, isAdmin, onStatus, onDelete, onOpen }: {
+  staff: Agent; tasks: TaskRecord[]; date: string; canEdit: boolean; isAdmin: boolean;
+  onStatus: (id: string, status: Status) => void; onDelete: (id: string) => void; onOpen: (id: string) => void;
 }) {
   const [showEod, setShowEod] = useState(false);
   const timeline = buildDayTimeline(tasks);
   const eod = eodOf(tasks);
-  const doneCount = tasks.filter((t) => DAILY_DONE(t.status)).length;
+  const doneCount = tasks.filter((t) => DONEISH(t.status)).length;
 
   return (
     <div style={{ ...card, overflow: "hidden" }}>
@@ -135,16 +162,19 @@ function DailyStaffCard({ staff, tasks, date, canEdit, isAdmin, onStatus, onDele
         {tasks.length === 0 && <div style={{ fontSize: 13, color: C.sub, padding: "6px 0" }}>No daily tasks for this date.</div>}
         <div className="space-y-2">
           {tasks.map((t) => {
-            const m = DAILY_META[t.status];
+            const m = STATUS_META[t.status];
+            const pm = PRIORITY_META[t.priority || "medium"];
             return (
-              <div key={t.id} className="flex items-center justify-between flex-wrap gap-2" style={{ background: C.paper, borderRadius: 10, padding: "8px 11px" }}>
+              <div key={t.id} className="flex items-center justify-between flex-wrap gap-2" style={{ background: C.paper, borderRadius: 10, padding: "8px 11px", opacity: DEAD(t.status) ? 0.6 : 1 }}>
                 <div className="flex items-center gap-2" style={{ minWidth: 0 }}>
-                  <span style={{ fontWeight: 600, fontSize: 13.5 }}>{t.title}</span>
+                  <span style={{ width: 8, height: 8, borderRadius: 3, background: catC(t.category), flexShrink: 0 }} />
+                  <button onClick={() => onOpen(t.id)} style={{ fontWeight: 600, fontSize: 13.5, background: "transparent", border: "none", padding: 0, cursor: "pointer", color: C.text, textAlign: "left" }}>{t.title}</button>
+                  <Chip color={pm.c} soft={pm.soft} icon={<Flag size={9} />}>{pm.txt}</Chip>
                   <Chip color={m.c} soft={m.soft}>{m.txt}</Chip>
                   {t.completedAt && <span style={{ fontSize: 11.5, color: C.sub }} className="flex items-center gap-1"><Clock size={11} /> {fmtClock(t.completedAt)}</span>}
                 </div>
                 <div className="flex items-center gap-1.5">
-                  {canEdit && t.status === "assigned" && <Btn sm kind="ghost" icon={<Play size={12} />} onClick={() => onStatus(t.id, "in_progress")}>Start</Btn>}
+                  {canEdit && t.status === "pending" && <Btn sm kind="ghost" icon={<Play size={12} />} onClick={() => onStatus(t.id, "in_progress")}>Start</Btn>}
                   {canEdit && t.status === "in_progress" && <Btn sm kind="ghost" icon={<CheckCircle2 size={12} />} onClick={() => onStatus(t.id, "completed")}>Complete</Btn>}
                   {canEdit && t.status === "completed" && <Btn sm kind="teal" icon={<Send size={12} />} onClick={() => onStatus(t.id, "published")}>Publish</Btn>}
                   {isAdmin && <button onClick={() => onDelete(t.id)} title="Remove" style={{ color: C.rose, background: "none", border: "none", cursor: "pointer" }}><Trash2 size={14} /></button>}
@@ -164,9 +194,9 @@ function DailyStaffCard({ staff, tasks, date, canEdit, isAdmin, onStatus, onDele
           <div style={{ borderLeft: `2px solid ${C.line}`, paddingLeft: 12 }}>
             {timeline.map((e, i) => (
               <div key={i} className="flex items-center gap-2" style={{ padding: "3px 0", fontSize: 12.5, position: "relative" }}>
-                <span style={{ position: "absolute", left: -17, width: 8, height: 8, borderRadius: 999, background: dailyDotColor(e.action) }} />
+                <span style={{ position: "absolute", left: -17, width: 8, height: 8, borderRadius: 999, background: e.color }} />
                 <span style={{ color: C.sub, fontVariantNumeric: "tabular-nums", minWidth: 62 }}>{fmtClock(e.ts)}</span>
-                <span>{e.label}</span>
+                <span>{e.title} — {e.text}</span>
               </div>
             ))}
           </div>
@@ -207,8 +237,8 @@ function EodBlock({ title, items, color }: { title: string; items: string[]; col
 function TeamDailyReport({ data, date }: { data: AppData; date: string }) {
   const teams = (["Domestic", "International"] as Team[]).map((team) => {
     const members = data.agents.filter((a) => a.team === team).map((a) => {
-      const ts = (data.daily || []).filter((d) => d.date === date && d.agentId === a.id);
-      return { name: a.name, done: ts.filter((d) => DAILY_DONE(d.status)).length };
+      const ts = (data.daily || []).filter((d) => d.agentId === a.id && toDateInput(d.dueDate) === date);
+      return { name: a.name, done: ts.filter((d) => DONEISH(d.status)).length };
     });
     return { team, members, done: members.reduce((s, m) => s + m.done, 0) };
   });

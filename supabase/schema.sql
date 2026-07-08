@@ -32,10 +32,13 @@ create table if not exists admins (
 create or replace view agents_public as
   select id, name, team, username from agents;
 
--- ---------- records: unifies tasks / premium / gladex / tariff ----------
+-- ---------- records: unifies tasks / premium / gladex / tariff / daily ----------
+-- "daily" tasks are ordinary records too (same title/category/priority/status
+-- shape as everything else) so they automatically count in KPI/productivity
+-- math; due_date holds which day a daily task belongs to.
 create table if not exists records (
   id              text primary key,
-  collection      text not null check (collection in ('tasks', 'premium', 'gladex', 'tariff')),
+  collection      text not null check (collection in ('tasks', 'premium', 'gladex', 'tariff', 'daily')),
   agent_id        text references agents(id) on delete set null,
   title           text not null default '',
   category        text,
@@ -111,22 +114,6 @@ create table if not exists reports (
   approved_at  timestamptz,
   approved_by  text
 );
-
--- ---------- daily tasking ----------
-create table if not exists daily_tasks (
-  id           text primary key,
-  agent_id     text references agents(id) on delete set null,
-  title        text not null default '',
-  date         text not null,
-  status       text not null default 'assigned' check (status in ('assigned', 'in_progress', 'completed', 'published')),
-  assigned_by  text,
-  assigned_at  timestamptz default now(),
-  started_at   timestamptz,
-  completed_at timestamptz,
-  timeline     jsonb not null default '[]'
-);
-create index if not exists daily_tasks_agent_idx on daily_tasks(agent_id);
-create index if not exists daily_tasks_date_idx on daily_tasks(date);
 
 -- ---------- auth functions ----------
 -- All credential reads/writes go through these security-definer functions,
@@ -235,7 +222,6 @@ alter table logs enable row level security;
 alter table kpi_defs enable row level security;
 alter table kpi_progress enable row level security;
 alter table reports enable row level security;
-alter table daily_tasks enable row level security;
 
 -- drop-then-create makes this file safe to run more than once.
 drop policy if exists "anon full access" on records;
@@ -243,24 +229,18 @@ drop policy if exists "anon full access" on logs;
 drop policy if exists "anon full access" on kpi_defs;
 drop policy if exists "anon full access" on kpi_progress;
 drop policy if exists "anon full access" on reports;
-drop policy if exists "anon full access" on daily_tasks;
 create policy "anon full access" on records for all using (true) with check (true);
 create policy "anon full access" on logs for all using (true) with check (true);
 create policy "anon full access" on kpi_defs for all using (true) with check (true);
 create policy "anon full access" on kpi_progress for all using (true) with check (true);
 create policy "anon full access" on reports for all using (true) with check (true);
-create policy "anon full access" on daily_tasks for all using (true) with check (true);
 grant select on agents_public to anon, authenticated;
 
 -- ---------- Realtime ----------
--- Lets the app live-refresh when any user changes a record or daily task
--- (see subscribeToChanges() in src/lib/api.ts). Wrapped so re-running this
--- file is safe even if a table's already in the publication.
+-- Lets the app live-refresh when any user changes any record, daily tasks
+-- included (see subscribeToChanges() in src/lib/api.ts). Wrapped so
+-- re-running this file is safe even if the table's already in the publication.
 do $$ begin
   alter publication supabase_realtime add table records;
-exception when duplicate_object then null;
-end $$;
-do $$ begin
-  alter publication supabase_realtime add table daily_tasks;
 exception when duplicate_object then null;
 end $$;

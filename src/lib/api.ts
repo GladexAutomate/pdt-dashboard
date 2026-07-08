@@ -3,7 +3,7 @@ import { COLLECTIONS } from "./constants";
 import type {
   AppData, Agent, TaskRecord, LogEntry, KpiDef, ReportState, ColKey,
   Status, Priority, ProofItem, CommentEntry, ActivityEntry, LinkItem,
-  DailyTask, DailyEvent, DailyStatus, Team, LoginResult
+  Team, LoginResult
 } from "./types";
 
 /* ---------- timestamp helpers (DB uses ISO strings, the app uses epoch ms) ---------- */
@@ -118,64 +118,23 @@ function recordPatchToRow(patch: Partial<TaskRecord>): Record<string, unknown> {
   return row;
 }
 
-interface DailyRow {
-  id: string;
-  agent_id: string | null;
-  title: string;
-  date: string;
-  status: string;
-  assigned_by: string | null;
-  assigned_at: string | null;
-  started_at: string | null;
-  completed_at: string | null;
-  timeline: DailyEvent[] | null;
-}
-function rowToDaily(r: DailyRow): DailyTask {
-  return {
-    id: r.id,
-    agentId: r.agent_id ?? "",
-    title: r.title,
-    date: r.date,
-    status: r.status as DailyStatus,
-    assignedBy: r.assigned_by ?? "—",
-    assignedAt: toMs(r.assigned_at) ?? Date.now(),
-    startedAt: toMs(r.started_at),
-    completedAt: toMs(r.completed_at),
-    timeline: r.timeline ?? []
-  };
-}
-function dailyPatchToRow(patch: Partial<DailyTask>): Record<string, unknown> {
-  const row: Record<string, unknown> = {};
-  if ("agentId" in patch) row.agent_id = patch.agentId;
-  if ("title" in patch) row.title = patch.title;
-  if ("date" in patch) row.date = patch.date;
-  if ("status" in patch) row.status = patch.status;
-  if ("assignedBy" in patch) row.assigned_by = patch.assignedBy;
-  if ("assignedAt" in patch) row.assigned_at = toIso(patch.assignedAt);
-  if ("startedAt" in patch) row.started_at = toIso(patch.startedAt);
-  if ("completedAt" in patch) row.completed_at = toIso(patch.completedAt);
-  if ("timeline" in patch) row.timeline = patch.timeline;
-  return row;
-}
-
 /* ---------- full app data load ---------- */
 export async function fetchAppData(): Promise<AppData> {
-  const [agentsRes, recordsRes, logsRes, kpiDefsRes, kpiProgressRes, reportsRes, dailyRes] = await Promise.all([
+  const [agentsRes, recordsRes, logsRes, kpiDefsRes, kpiProgressRes, reportsRes] = await Promise.all([
     supabase.from("agents_public").select("*").order("id"),
     supabase.from("records").select("*"),
     supabase.from("logs").select("*").order("ts", { ascending: false }).limit(300),
     supabase.from("kpi_defs").select("*"),
     supabase.from("kpi_progress").select("*"),
-    supabase.from("reports").select("*"),
-    supabase.from("daily_tasks").select("*")
+    supabase.from("reports").select("*")
   ]);
-  for (const res of [agentsRes, recordsRes, logsRes, kpiDefsRes, kpiProgressRes, reportsRes, dailyRes]) {
+  for (const res of [agentsRes, recordsRes, logsRes, kpiDefsRes, kpiProgressRes, reportsRes]) {
     if (res.error) throw res.error;
   }
 
   const agents: Agent[] = (agentsRes.data || []).map((r) => ({ id: r.id, name: r.name, team: r.team, username: r.username }));
 
-  const byCol: Record<ColKey, TaskRecord[]> = { tasks: [], premium: [], gladex: [], tariff: [] };
+  const byCol: Record<ColKey, TaskRecord[]> = { tasks: [], premium: [], gladex: [], tariff: [], daily: [] };
   (recordsRes.data as RecordRow[] || []).forEach((row) => { byCol[row.collection].push(rowToRecord(row)); });
   // keep the same stable order the rest of the app expects (insertion order isn't guaranteed by the DB)
   for (const col of COLLECTIONS) byCol[col].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
@@ -197,9 +156,7 @@ export async function fetchAppData(): Promise<AppData> {
     };
   });
 
-  const daily: DailyTask[] = (dailyRes.data as DailyRow[] || []).map(rowToDaily).sort((a, b) => a.assignedAt - b.assignedAt);
-
-  return { agents, tasks: byCol.tasks, premium: byCol.premium, gladex: byCol.gladex, tariff: byCol.tariff, daily, logs, kpi: { defs, progress }, reports, seeded: true };
+  return { agents, tasks: byCol.tasks, premium: byCol.premium, gladex: byCol.gladex, tariff: byCol.tariff, daily: byCol.daily, logs, kpi: { defs, progress }, reports, seeded: true };
 }
 
 /* ---------- records ---------- */
@@ -256,19 +213,6 @@ export async function deleteKpiDefRow(id: string): Promise<void> {
   const { error } = await supabase.from("kpi_defs").delete().eq("id", id);
   if (error) throw error;
 }
-export async function insertDailyRow(d: DailyTask): Promise<void> {
-  const row = { id: d.id, ...dailyPatchToRow(d) };
-  const { error } = await supabase.from("daily_tasks").insert(row);
-  if (error) throw error;
-}
-export async function updateDailyRow(id: string, patch: Partial<DailyTask>): Promise<void> {
-  const { error } = await supabase.from("daily_tasks").update(dailyPatchToRow(patch)).eq("id", id);
-  if (error) throw error;
-}
-export async function deleteDailyRow(id: string): Promise<void> {
-  const { error } = await supabase.from("daily_tasks").delete().eq("id", id);
-  if (error) throw error;
-}
 /* ---------- auth & agents (user management) ----------
    All credential reads/writes go through RPCs (see supabase/schema.sql) —
    the client has no direct table access to `agents`/`admins` and never
@@ -314,7 +258,6 @@ export function subscribeToChanges(onChange: () => void): () => void {
   const channel = supabase
     .channel("pdt-changes")
     .on("postgres_changes", { event: "*", schema: "public", table: "records" }, onChange)
-    .on("postgres_changes", { event: "*", schema: "public", table: "daily_tasks" }, onChange)
     .subscribe();
   return () => { supabase.removeChannel(channel); };
 }
