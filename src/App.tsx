@@ -36,6 +36,13 @@ export default function App() {
   const [selTeam, setSelTeam] = useState<Team | null>(null);
   const [selAgent, setSelAgent] = useState<string | null>(null);
   const [detail, setDetail] = useState<DetailTarget | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 6000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   useEffect(() => {
     (async () => {
@@ -78,6 +85,19 @@ export default function App() {
   const actId = () => "ac" + Date.now() + Math.random().toString(36).slice(2, 5);
   const persistCol = (col: ColKey, fn: (list: TaskRecord[]) => TaskRecord[]) => persist((d) => ({ ...d, [col]: fn(d[col] || []) }));
 
+  /* runs the real Supabase write behind an optimistic update: on success, fires
+     onSuccess (e.g. the activity log entry, which used to fire unconditionally
+     even when the save itself failed); on failure, rolls the optimistic change
+     back and surfaces the error instead of letting it vanish silently later. */
+  const runMutation = (save: () => Promise<void>, rollback: () => void, onSuccess?: () => void) => {
+    save().then(() => onSuccess?.()).catch((e: unknown) => {
+      console.error("Save failed", e);
+      rollback();
+      const msg = e && typeof e === "object" && "message" in e ? String((e as { message: unknown }).message) : "Something went wrong saving your change — it was not saved.";
+      setToast(msg);
+    });
+  };
+
   /* ---- generalized record mutators (work on any collection) ---- */
   const addRec = (col: ColKey, r: Partial<TaskRecord>) => {
     const id = (col === "tasks" ? "t" : col.slice(0, 2)) + Date.now();
@@ -89,13 +109,20 @@ export default function App() {
       assignedBy: actor().name, completedBy: null, updatedAt: now, updatedBy: actor().name, ...r
     };
     persistCol(col, (list) => [...list, full]);
-    insertRecord(col, full).catch((e) => console.error("Failed to save record", e));
-    log({ userId: actor().id, name: actor().name, role: actor().role, type: "create", detail: `Added "${r.title}"` });
+    runMutation(
+      () => insertRecord(col, full),
+      () => persistCol(col, (list) => list.filter((x) => x.id !== id)),
+      () => log({ userId: actor().id, name: actor().name, role: actor().role, type: "create", detail: `Added "${r.title}"` })
+    );
   };
   const updateRec = (col: ColKey, id: string, patch: Partial<TaskRecord>) => {
+    const prev = (data?.[col] || []).find((r) => r.id === id);
     const stamp = { updatedAt: Date.now(), updatedBy: actor().name };
     persistCol(col, (l) => l.map((r) => (r.id === id ? { ...r, ...patch, ...stamp } : r)));
-    updateRecordRow(id, { ...patch, ...stamp }).catch((e) => console.error("Failed to update record", e));
+    runMutation(
+      () => updateRecordRow(id, { ...patch, ...stamp }),
+      () => { if (prev) persistCol(col, (l) => l.map((r) => (r.id === id ? prev : r))); }
+    );
   };
   const setRecStatus = (col: ColKey, id: string, status: Status) => {
     const t = (data?.[col] || []).find((x) => x.id === id);
@@ -112,8 +139,11 @@ export default function App() {
     patch.activity = [...(t.activity || []), entry];
 
     persistCol(col, (l) => l.map((x) => (x.id === id ? { ...x, ...patch } : x)));
-    updateRecordRow(id, patch).catch((e) => console.error("Failed to update status", e));
-    log({ userId: actor().id, name: actor().name, role: actor().role, type: "status", detail: `Set "${t.title}" → ${STATUS_META[status].txt}` });
+    runMutation(
+      () => updateRecordRow(id, patch),
+      () => persistCol(col, (l) => l.map((x) => (x.id === id ? t : x))),
+      () => log({ userId: actor().id, name: actor().name, role: actor().role, type: "status", detail: `Set "${t.title}" → ${STATUS_META[status].txt}` })
+    );
   };
   const reassignRec = (col: ColKey, id: string, newAgentId: string) => {
     const t = (data?.[col] || []).find((x) => x.id === id);
@@ -123,8 +153,11 @@ export default function App() {
     const entry: ActivityEntry = { id: actId(), type: "reassign", text: `Reassigned ${from} → ${toA?.name || "—"}`, by: actor().name, role: actor().role, ts: Date.now() };
     const patch: Partial<TaskRecord> = { agentId: newAgentId, team: toA?.team || t.team, activity: [...(t.activity || []), entry], updatedAt: Date.now(), updatedBy: actor().name };
     persistCol(col, (l) => l.map((x) => (x.id === id ? { ...x, ...patch } : x)));
-    updateRecordRow(id, patch).catch((e) => console.error("Failed to reassign record", e));
-    log({ userId: actor().id, name: actor().name, role: actor().role, type: "reassign", detail: `Reassigned "${t.title}" → ${toA?.name || "—"}` });
+    runMutation(
+      () => updateRecordRow(id, patch),
+      () => persistCol(col, (l) => l.map((x) => (x.id === id ? t : x))),
+      () => log({ userId: actor().id, name: actor().name, role: actor().role, type: "reassign", detail: `Reassigned "${t.title}" → ${toA?.name || "—"}` })
+    );
   };
   const addRecComment = (col: ColKey, id: string, text: string) => {
     if (!text || !text.trim()) return;
@@ -133,8 +166,11 @@ export default function App() {
     const comment: CommentEntry = { id: "cm" + Date.now(), by: actor().name, role: actor().role, text: text.trim(), ts: Date.now() };
     const patch: Partial<TaskRecord> = { comments: [...(t.comments || []), comment], updatedAt: Date.now(), updatedBy: actor().name };
     persistCol(col, (l) => l.map((x) => (x.id === id ? { ...x, ...patch } : x)));
-    updateRecordRow(id, patch).catch((e) => console.error("Failed to add comment", e));
-    log({ userId: actor().id, name: actor().name, role: actor().role, type: "comment", detail: `Commented on "${t.title}"` });
+    runMutation(
+      () => updateRecordRow(id, patch),
+      () => persistCol(col, (l) => l.map((x) => (x.id === id ? t : x))),
+      () => log({ userId: actor().id, name: actor().name, role: actor().role, type: "comment", detail: `Commented on "${t.title}"` })
+    );
   };
   const pushRecActivity = (col: ColKey, id: string, type: string, text: string) => {
     const t = (data?.[col] || []).find((x) => x.id === id);
@@ -142,11 +178,18 @@ export default function App() {
     const entry: ActivityEntry = { id: actId(), type, text, by: actor().name, role: actor().role, ts: Date.now() };
     const patch: Partial<TaskRecord> = { activity: [...(t.activity || []), entry], updatedAt: Date.now(), updatedBy: actor().name };
     persistCol(col, (l) => l.map((r) => (r.id === id ? { ...r, ...patch } : r)));
-    updateRecordRow(id, patch).catch((e) => console.error("Failed to push activity", e));
+    runMutation(
+      () => updateRecordRow(id, patch),
+      () => persistCol(col, (l) => l.map((r) => (r.id === id ? t : r)))
+    );
   };
   const deleteRec = (col: ColKey, id: string) => {
+    const prev = (data?.[col] || []).find((r) => r.id === id);
     persistCol(col, (l) => l.filter((r) => r.id !== id));
-    deleteRecordRow(id).catch((e) => console.error("Failed to delete record", e));
+    runMutation(
+      () => deleteRecordRow(id),
+      () => { if (prev) persistCol(col, (l) => [...l, prev]); }
+    );
   };
 
   /* ---- monthly report approval state ---- */
@@ -242,13 +285,16 @@ export default function App() {
   const setStatus = (id: string, status: Status) => setRecStatus("tasks", id, status);
   const reassignTask = (id: string, n: string) => reassignRec("tasks", id, n);
   const completeRec = (col: ColKey, id: string, { hours, itemsTotal, itemsError, publish }: CompletePayload) => {
+    const t = data?.[col]?.find((x) => x.id === id);
     const now = Date.now();
     const status: Status = publish ? "published" : "completed";
     const patch: Partial<TaskRecord> = { status, completedAt: now, completedBy: actor().name, progress: 100, startedAt: now - Math.max(hours, 0.05) * H, itemsTotal, itemsError, updatedAt: now, updatedBy: actor().name };
-    persistCol(col, (l) => l.map((t) => (t.id === id ? { ...t, ...patch } : t)));
-    updateRecordRow(id, patch).catch((e) => console.error("Failed to complete task", e));
-    const t = data?.[col]?.find((x) => x.id === id);
-    log({ userId: actor().id, name: actor().name, role: actor().role, type: publish ? "publish" : "complete", detail: `${publish ? "Published" : "Completed"} "${t?.title}"` });
+    persistCol(col, (l) => l.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+    runMutation(
+      () => updateRecordRow(id, patch),
+      () => { if (t) persistCol(col, (l) => l.map((x) => (x.id === id ? t : x))); },
+      () => log({ userId: actor().id, name: actor().name, role: actor().role, type: publish ? "publish" : "complete", detail: `${publish ? "Published" : "Completed"} "${t?.title}"` })
+    );
   };
 
   const doLogin = (result: LoginResult) => {
@@ -333,6 +379,16 @@ export default function App() {
           addComment={(id, text) => addRecComment(detail.col, id, text)}
           pushActivity={(id, ty, tx) => pushRecActivity(detail.col, id, ty, tx)}
           deleteTask={(id) => { deleteRec(detail.col, id); setDetail(null); }} />
+      )}
+      {toast && (
+        <div style={{
+          position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", zIndex: 1000,
+          background: C.rose, color: "#fff", padding: "10px 16px", borderRadius: 10, fontSize: 13.5, fontWeight: 600,
+          boxShadow: "0 6px 20px rgba(0,0,0,0.18)", display: "flex", alignItems: "center", gap: 10, maxWidth: "90vw"
+        }}>
+          <span>{toast}</span>
+          <button onClick={() => setToast(null)} style={{ background: "transparent", border: "none", color: "#fff", cursor: "pointer", fontSize: 15, lineHeight: 1, opacity: 0.85 }}>×</button>
+        </div>
       )}
     </div>
   );
