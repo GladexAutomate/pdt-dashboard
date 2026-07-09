@@ -3,7 +3,7 @@ import { COLLECTIONS } from "./constants";
 import type {
   AppData, Agent, TaskRecord, LogEntry, KpiDef, ReportState, ColKey,
   Status, Priority, ProofItem, CommentEntry, ActivityEntry, LinkItem,
-  Team, LoginResult
+  Team, LoginResult, Category
 } from "./types";
 
 /* ---------- timestamp helpers (DB uses ISO strings, the app uses epoch ms) ---------- */
@@ -120,19 +120,21 @@ function recordPatchToRow(patch: Partial<TaskRecord>): Record<string, unknown> {
 
 /* ---------- full app data load ---------- */
 export async function fetchAppData(): Promise<AppData> {
-  const [agentsRes, recordsRes, logsRes, kpiDefsRes, kpiProgressRes, reportsRes] = await Promise.all([
+  const [agentsRes, recordsRes, logsRes, kpiDefsRes, kpiProgressRes, reportsRes, categoriesRes] = await Promise.all([
     supabase.from("agents_public").select("*").order("id"),
     supabase.from("records").select("*"),
     supabase.from("logs").select("*").order("ts", { ascending: false }).limit(300),
     supabase.from("kpi_defs").select("*"),
     supabase.from("kpi_progress").select("*"),
-    supabase.from("reports").select("*")
+    supabase.from("reports").select("*"),
+    supabase.from("categories").select("*").order("id")
   ]);
-  for (const res of [agentsRes, recordsRes, logsRes, kpiDefsRes, kpiProgressRes, reportsRes]) {
+  for (const res of [agentsRes, recordsRes, logsRes, kpiDefsRes, kpiProgressRes, reportsRes, categoriesRes]) {
     if (res.error) throw res.error;
   }
 
   const agents: Agent[] = (agentsRes.data || []).map((r) => ({ id: r.id, name: r.name, team: r.team, username: r.username }));
+  const categories: Category[] = (categoriesRes.data || []).map((r) => ({ id: r.id, name: r.name, color: r.color }));
 
   const byCol: Record<ColKey, TaskRecord[]> = { tasks: [], premium: [], gladex: [], tariff: [], daily: [] };
   (recordsRes.data as RecordRow[] || []).forEach((row) => { byCol[row.collection].push(rowToRecord(row)); });
@@ -156,7 +158,7 @@ export async function fetchAppData(): Promise<AppData> {
     };
   });
 
-  return { agents, tasks: byCol.tasks, premium: byCol.premium, gladex: byCol.gladex, tariff: byCol.tariff, daily: byCol.daily, logs, kpi: { defs, progress }, reports, seeded: true };
+  return { agents, tasks: byCol.tasks, premium: byCol.premium, gladex: byCol.gladex, tariff: byCol.tariff, daily: byCol.daily, logs, kpi: { defs, progress }, reports, categories, seeded: true };
 }
 
 /* ---------- records ---------- */
@@ -213,6 +215,21 @@ export async function deleteKpiDefRow(id: string): Promise<void> {
   const { error } = await supabase.from("kpi_defs").delete().eq("id", id);
   if (error) throw error;
 }
+
+/* ---------- categories ---------- */
+export async function insertCategoryRow(cat: Category): Promise<void> {
+  const { error } = await supabase.from("categories").insert({ id: cat.id, name: cat.name, color: cat.color });
+  if (error) throw error;
+}
+export async function updateCategoryRow(id: string, patch: { name?: string; color?: string }): Promise<void> {
+  const { error } = await supabase.from("categories").update(patch).eq("id", id);
+  if (error) throw error;
+}
+export async function deleteCategoryRow(id: string): Promise<void> {
+  const { error } = await supabase.from("categories").delete().eq("id", id);
+  if (error) throw error;
+}
+
 /* ---------- auth & agents (user management) ----------
    All credential reads/writes go through RPCs (see supabase/schema.sql) —
    the client has no direct table access to `agents`/`admins` and never
@@ -264,6 +281,10 @@ export async function updateAdminRow(id: string, input: UpdateAdminInput): Promi
   const { error } = await supabase.rpc("update_admin", {
     p_id: id, p_current_password: input.currentPassword, p_name: input.name ?? null, p_username: input.username ?? null, p_new_password: input.password ?? null
   });
+  if (error) throw error;
+}
+export async function promoteAgentToAdmin(id: string): Promise<void> {
+  const { error } = await supabase.rpc("promote_agent_to_admin", { p_id: id });
   if (error) throw error;
 }
 

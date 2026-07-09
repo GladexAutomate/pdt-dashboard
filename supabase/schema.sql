@@ -115,6 +115,20 @@ create table if not exists reports (
   approved_by  text
 );
 
+-- ---------- task categories (admin-managed, used across tasks/premium/gladex/tariff) ----------
+create table if not exists categories (
+  id    text primary key,
+  name  text not null unique,
+  color text not null default '#64708A'
+);
+insert into categories (id, name, color) values
+  ('cat1', 'BOT', '#7C5CE0'),
+  ('cat2', 'Website', '#0E9E8E'),
+  ('cat3', 'Lakbayhub', '#E0663F'),
+  ('cat4', 'Land arrangement', '#3C6CE0'),
+  ('cat5', 'Collectives', '#D9852A')
+on conflict (id) do nothing;
+
 -- ---------- auth functions ----------
 -- All credential reads/writes go through these security-definer functions,
 -- which run with the privileges of the function owner and so bypass RLS —
@@ -224,16 +238,41 @@ begin
 end;
 $$;
 
+-- Moves an existing agent's login into admins, keeping their username/password/name
+-- as-is (so they can log back in immediately with what they already know) and
+-- removing them from agents. Same trade-off as delete_agent: their past task
+-- assignments aren't deleted, but agent_id on those records goes to null
+-- (shows as "Unassigned") since the agent row is gone.
+create or replace function public.promote_agent_to_admin(p_id text)
+returns void
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  a agents;
+begin
+  select * into a from agents where id = p_id;
+  if a is null then
+    raise exception 'Agent not found.';
+  end if;
+  insert into admins (id, username, password, name) values (a.id, a.username, a.password, a.name);
+  delete from agents where id = p_id;
+end;
+$$;
+
 revoke all on function public.login(text, text) from public;
 revoke all on function public.create_agent(text, text, text, text, text) from public;
 revoke all on function public.update_agent(text, text, text, text, text) from public;
 revoke all on function public.delete_agent(text) from public;
 revoke all on function public.update_admin(text, text, text, text, text) from public;
+revoke all on function public.promote_agent_to_admin(text) from public;
 grant execute on function public.login(text, text) to anon, authenticated;
 grant execute on function public.create_agent(text, text, text, text, text) to anon, authenticated;
 grant execute on function public.update_agent(text, text, text, text, text) to anon, authenticated;
 grant execute on function public.delete_agent(text) to anon, authenticated;
 grant execute on function public.update_admin(text, text, text, text, text) to anon, authenticated;
+grant execute on function public.promote_agent_to_admin(text) to anon, authenticated;
 
 -- ---------- Row Level Security ----------
 -- NOTE (security tradeoff, please read):
@@ -253,6 +292,7 @@ alter table logs enable row level security;
 alter table kpi_defs enable row level security;
 alter table kpi_progress enable row level security;
 alter table reports enable row level security;
+alter table categories enable row level security;
 
 -- drop-then-create makes this file safe to run more than once.
 drop policy if exists "anon full access" on records;
@@ -260,11 +300,13 @@ drop policy if exists "anon full access" on logs;
 drop policy if exists "anon full access" on kpi_defs;
 drop policy if exists "anon full access" on kpi_progress;
 drop policy if exists "anon full access" on reports;
+drop policy if exists "anon full access" on categories;
 create policy "anon full access" on records for all using (true) with check (true);
 create policy "anon full access" on logs for all using (true) with check (true);
 create policy "anon full access" on kpi_defs for all using (true) with check (true);
 create policy "anon full access" on kpi_progress for all using (true) with check (true);
 create policy "anon full access" on reports for all using (true) with check (true);
+create policy "anon full access" on categories for all using (true) with check (true);
 grant select on agents_public to anon, authenticated;
 
 -- ---------- Realtime ----------

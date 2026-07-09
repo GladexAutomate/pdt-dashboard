@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import type { Team } from "./types";
+import type { Team, Category } from "./types";
 
 export const C = {
   ink: "#16203A", ink2: "#1F2C4D", paper: "#EDF0F6", surface: "#FFFFFF",
@@ -11,8 +11,7 @@ export const C = {
   gold: "#E9B949"
 };
 export const teamColor = (t: Team | string | undefined): string => (t === "Domestic" ? C.domestic : C.international);
-export const catColor: Record<string, string> = { BOT: "#7C5CE0", Website: "#0E9E8E", Lakbayhub: "#E0663F", "Land arrangement": "#3C6CE0", Collectives: "#D9852A" };
-export const catC = (c: string | undefined): string => (c ? catColor[c] || "#64708A" : "#64708A");
+export const catC = (name: string | undefined, categories?: Category[]): string => (name && categories?.find((c) => c.name === name)?.color) || "#64708A";
 
 export const card: CSSProperties = { background: C.surface, border: `1px solid ${C.line}`, borderRadius: 16 };
 export const inputStyle: CSSProperties = { width: "100%", border: `1px solid ${C.line}`, borderRadius: 10, padding: "9px 11px", fontSize: 14, color: C.text, background: "#fff", outline: "none" };

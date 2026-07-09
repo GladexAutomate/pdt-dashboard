@@ -1,14 +1,14 @@
 import { useState, useEffect } from "react";
 import {
-  LayoutDashboard, Users, ScrollText, Target, Sparkles, Package, FileText, Gauge, Activity, CalendarCheck, UserCog
+  LayoutDashboard, Users, ScrollText, Target, Sparkles, Package, FileText, Gauge, Activity, CalendarCheck, UserCog, Tag
 } from "lucide-react";
 
 import { C } from "./lib/theme";
 import { TRACKERS, DONEISH, H, STATUS_META } from "./lib/constants";
-import { fetchAppData, insertRecord, updateRecordRow, deleteRecordRow, insertLog, upsertReport, setKpiProgressRow, insertKpiDefRow, updateKpiDefRow, deleteKpiDefRow, subscribeToChanges, createAgent, updateAgentRow, deleteAgentRow, updateAdminRow } from "./lib/api";
+import { fetchAppData, insertRecord, updateRecordRow, deleteRecordRow, insertLog, upsertReport, setKpiProgressRow, insertKpiDefRow, updateKpiDefRow, deleteKpiDefRow, subscribeToChanges, createAgent, updateAgentRow, deleteAgentRow, updateAdminRow, insertCategoryRow, updateCategoryRow, deleteCategoryRow, promoteAgentToAdmin } from "./lib/api";
 import type {
   AppData, TaskRecord, Status, Team, ColKey, LogEntry, ReportState, Session,
-  LoginResult, DetailTarget, Agent, ActivityEntry, CommentEntry, KpiDef
+  LoginResult, DetailTarget, Agent, ActivityEntry, CommentEntry, KpiDef, Category
 } from "./lib/types";
 import { Login } from "./components/Login";
 import { Shell } from "./components/Shell";
@@ -23,6 +23,7 @@ import { Logs } from "./components/Logs";
 import { KpiDashboard } from "./components/KpiDashboard";
 import { DailyTasking } from "./components/DailyTasking";
 import { UserManagement, type NewAgentInput, type UpdateAgentInput } from "./components/UserManagement";
+import { CategoryManagement } from "./components/CategoryManagement";
 
 type LogInput = Omit<LogEntry, "id" | "ts">;
 
@@ -291,6 +292,66 @@ export default function App() {
     log({ userId: session.id, name: clean.name || session.name, role: "admin", type: "status", detail: "Updated own account" });
     return null;
   };
+  const promoteAgent = async (id: string): Promise<string | null> => {
+    const a = data?.agents.find((x) => x.id === id);
+    try {
+      await promoteAgentToAdmin(id);
+    } catch (e) {
+      return e instanceof Error ? e.message : "Failed to promote agent.";
+    }
+    // agent → admin moves data across two tables server-side (and detaches their
+    // past task assignments), so refetch rather than trying to patch local state.
+    try {
+      const fresh = await fetchAppData();
+      setData(fresh);
+    } catch (e) {
+      console.error("Failed to refresh after promotion", e);
+    }
+    log({ userId: actor().id, name: actor().name, role: actor().role, type: "status", detail: `Promoted "${a?.name}" to admin` });
+    return null;
+  };
+
+  /* ---- categories ---- */
+  const addCategory = async (name: string, color: string): Promise<string | null> => {
+    const trimmed = name.trim();
+    if (!trimmed) return "Name is required.";
+    if (data?.categories.some((c) => c.name.toLowerCase() === trimmed.toLowerCase())) return "That category already exists.";
+    const cat: Category = { id: "cat" + Date.now(), name: trimmed, color };
+    try {
+      await insertCategoryRow(cat);
+    } catch (e) {
+      return e instanceof Error ? e.message : "Failed to add category.";
+    }
+    persist((d) => ({ ...d, categories: [...d.categories, cat] }));
+    log({ userId: actor().id, name: actor().name, role: actor().role, type: "create", detail: `Added category "${trimmed}"` });
+    return null;
+  };
+  const updateCategory = async (id: string, patch: { name?: string; color?: string }): Promise<string | null> => {
+    const clean = { ...patch };
+    if (clean.name != null) {
+      clean.name = clean.name.trim();
+      if (!clean.name) return "Name is required.";
+      if (data?.categories.some((c) => c.id !== id && c.name.toLowerCase() === clean.name!.toLowerCase())) return "That category already exists.";
+    }
+    try {
+      await updateCategoryRow(id, clean);
+    } catch (e) {
+      return e instanceof Error ? e.message : "Failed to update category.";
+    }
+    persist((d) => ({ ...d, categories: d.categories.map((c) => (c.id === id ? { ...c, ...clean } : c)) }));
+    return null;
+  };
+  const removeCategory = async (id: string): Promise<string | null> => {
+    const c = data?.categories.find((x) => x.id === id);
+    try {
+      await deleteCategoryRow(id);
+    } catch (e) {
+      return e instanceof Error ? e.message : "Failed to remove category.";
+    }
+    persist((d) => ({ ...d, categories: d.categories.filter((x) => x.id !== id) }));
+    log({ userId: actor().id, name: actor().name, role: actor().role, type: "status", detail: `Removed category "${c?.name}"` });
+    return null;
+  };
 
   /* ---- task-specific wrappers (keep existing components working) ----
      Daily tasks are just addRec("daily", ...) etc. — see DailyTasking.tsx,
@@ -348,11 +409,12 @@ export default function App() {
         <Login onLogin={doLogin} />
       ) : session.role === "admin" ? (
         <Shell session={session} onLogout={() => setSession(null)} onAccount={() => setShowAccount(true)}
-          tabs={[["home", "Dashboard", <LayoutDashboard size={16} />], ["teams", "Teams", <Users size={16} />], ["daily", "Daily Tasking", <CalendarCheck size={16} />], ["users", "Users", <UserCog size={16} />], ["kpi", "KPI Targets", <Target size={16} />], ["premium", "PREMIUM", <Sparkles size={16} />], ["gladex", "GLADEX", <Package size={16} />], ["tariff", "Tariff", <FileText size={16} />], ["report", "Monthly Report", <Gauge size={16} />], ["logs", "Logs", <ScrollText size={16} />]]}
+          tabs={[["home", "Dashboard", <LayoutDashboard size={16} />], ["teams", "Teams", <Users size={16} />], ["daily", "Daily Tasking", <CalendarCheck size={16} />], ["users", "Users", <UserCog size={16} />], ["categories", "Categories", <Tag size={16} />], ["kpi", "KPI Targets", <Target size={16} />], ["premium", "PREMIUM", <Sparkles size={16} />], ["gladex", "GLADEX", <Package size={16} />], ["tariff", "Tariff", <FileText size={16} />], ["report", "Monthly Report", <Gauge size={16} />], ["logs", "Logs", <ScrollText size={16} />]]}
           active={adminTab} setActive={(t) => { setAdminTab(t); setSelTeam(null); setSelAgent(null); }}>
           {adminTab === "home" && <AdminHome data={data} go={(team) => { setAdminTab("teams"); setSelTeam(team as Team); }} />}
             {adminTab === "daily" && <DailyTasking {...trackerProps("daily")} isAdmin />}
-          {adminTab === "users" && <UserManagement data={data} addAgent={addAgent} updateAgent={updateAgent} removeAgent={removeAgent} />}
+          {adminTab === "users" && <UserManagement data={data} addAgent={addAgent} updateAgent={updateAgent} removeAgent={removeAgent} promoteAgent={promoteAgent} />}
+          {adminTab === "categories" && <CategoryManagement categories={data.categories} addCategory={addCategory} updateCategory={updateCategory} removeCategory={removeCategory} />}
           {adminTab === "kpi" && <KpiDashboard data={data} isAdmin setKpi={setKpiValue} addDef={addKpiDef} updateDef={updateKpiDef} removeDef={removeKpiDef} />}
           {adminTab === "logs" && <Logs logs={data.logs} />}
           {adminTab === "premium" && <TrackerView col="premium" config={TRACKERS.premium} {...trackerProps("premium")} />}

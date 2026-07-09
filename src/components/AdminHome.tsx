@@ -1,7 +1,6 @@
 import { useMemo } from "react";
 import { MapPin, Globe, ChevronRight, Package, Activity } from "lucide-react";
-import { C, card, catColor, teamColor } from "../lib/theme";
-import { CATEGORIES } from "../lib/constants";
+import { C, card, catC, teamColor } from "../lib/theme";
 import { groupStats, speedLabel, pct, relTime } from "../lib/helpers";
 import { Chip, BoardTile } from "./ui";
 import type { AppData, GroupStats } from "../lib/types";
@@ -12,9 +11,9 @@ export function AdminHome({ data, go }: { data: AppData; go: (team: string) => v
   const all = useMemo(() => groupStats(data.agents, data.tasks), [data]);
   const dom = useMemo(() => groupStats(data.agents.filter((a) => a.team === "Domestic"), data.tasks), [data]);
   const intl = useMemo(() => groupStats(data.agents.filter((a) => a.team === "International"), data.tasks), [data]);
-  const byCat = CATEGORIES.map((c) => {
-    const ts = data.tasks.filter((t) => t.category === c);
-    return { cat: c, made: ts.filter((t) => t.status === "completed" || t.status === "published").length, published: ts.filter((t) => t.status === "published").length, total: ts.length };
+  const byCat = data.categories.map((c) => {
+    const ts = data.tasks.filter((t) => t.category === c.name);
+    return { cat: c.name, made: ts.filter((t) => t.status === "completed" || t.status === "published").length, published: ts.filter((t) => t.status === "published").length, total: ts.length };
   });
   const maxCat = Math.max(1, ...byCat.map((x) => x.total));
   const sp = speedLabel(all.avgSpeed);
@@ -75,13 +74,13 @@ export function AdminHome({ data, go }: { data: AppData; go: (team: string) => v
             <div key={x.cat} className="mb-2.5">
               <div className="flex items-center justify-between mb-1">
                 <span className="flex items-center gap-1.5" style={{ fontSize: 13 }}>
-                  <span style={{ width: 9, height: 9, borderRadius: 3, background: catColor[x.cat] }} />{x.cat}
+                  <span style={{ width: 9, height: 9, borderRadius: 3, background: catC(x.cat, data.categories) }} />{x.cat}
                 </span>
                 <span style={{ fontSize: 12.5, color: C.sub }}><b style={{ color: C.text }}>{x.published}</b> published · {x.made} made</span>
               </div>
               <div className="flex gap-1" style={{ height: 9 }}>
-                <div style={{ width: `${(x.published / maxCat) * 100}%`, background: catColor[x.cat], borderRadius: 999 }} />
-                <div style={{ width: `${((x.made - x.published) / maxCat) * 100}%`, background: catColor[x.cat], opacity: 0.35, borderRadius: 999 }} />
+                <div style={{ width: `${(x.published / maxCat) * 100}%`, background: catC(x.cat, data.categories), borderRadius: 999 }} />
+                <div style={{ width: `${((x.made - x.published) / maxCat) * 100}%`, background: catC(x.cat, data.categories), opacity: 0.35, borderRadius: 999 }} />
               </div>
             </div>
           ))}

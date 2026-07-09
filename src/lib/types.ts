@@ -137,6 +137,12 @@ export interface ReportState {
   approvedBy?: string;
 }
 
+export interface Category {
+  id: string;
+  name: string;
+  color: string;
+}
+
 export interface AppData {
   agents: Agent[];
   tasks: TaskRecord[];
@@ -147,6 +153,7 @@ export interface AppData {
   logs: LogEntry[];
   reports: Record<string, ReportState>;
   kpi: KpiData;
+  categories: Category[];
   seeded?: boolean;
 }
 

@@ -3,10 +3,10 @@ import {
   CalendarCheck, Plus, Users, MapPin, Globe, Play, CheckCircle2, Send, Trash2, Clock, Activity, FileText, Flag
 } from "lucide-react";
 import { C, card, catC, teamColor, inputStyle } from "../lib/theme";
-import { CATEGORIES, PRIORITIES, PRIORITY_META, STATUS_META, DONEISH, DEAD } from "../lib/constants";
+import { PRIORITIES, PRIORITY_META, STATUS_META, DONEISH, DEAD } from "../lib/constants";
 import { toDateInput, fromDateInput } from "../lib/helpers";
 import { Avatar, Chip, Btn, Field } from "./ui";
-import type { AppData, Agent, TaskRecord, Status, Priority, ColKey, Team } from "../lib/types";
+import type { AppData, Agent, TaskRecord, Status, Priority, ColKey, Team, Category } from "../lib/types";
 import { todayKey, fmtDayLabel, fmtClock, buildDayTimeline, eodOf, fmtHours } from "../lib/daily";
 
 const COL: ColKey = "daily";
@@ -55,7 +55,7 @@ export function DailyTasking({ data, isAdmin, meId, addRec, setRecStatus, delete
       </div>
 
       {showAssign && (isAdmin || meId) && (
-        <AssignDailyForm agents={data.agents} date={date} fixedAgentId={isAdmin ? undefined : meId}
+        <AssignDailyForm agents={data.agents} categories={data.categories} date={date} fixedAgentId={isAdmin ? undefined : meId}
           onAssign={(r) => { addRec(COL, r); }}
           onClose={() => setShowAssign(false)} />
       )}
@@ -73,7 +73,7 @@ export function DailyTasking({ data, isAdmin, meId, addRec, setRecStatus, delete
       )}
 
       {shown.map((staff) => (
-        <DailyStaffCard key={staff.id} staff={staff} tasks={dailyFor(staff.id)} date={date}
+        <DailyStaffCard key={staff.id} staff={staff} tasks={dailyFor(staff.id)} date={date} categories={data.categories}
           canEdit={isAdmin || staff.id === meId} isAdmin={isAdmin}
           onStatus={(id, status) => setRecStatus(COL, id, status)} onDelete={(id) => deleteRec(COL, id)} onOpen={openDetail} />
       ))}
@@ -84,12 +84,12 @@ export function DailyTasking({ data, isAdmin, meId, addRec, setRecStatus, delete
   );
 }
 
-function AssignDailyForm({ agents, date, fixedAgentId, onAssign, onClose }: {
-  agents: Agent[]; date: string; fixedAgentId?: string; onAssign: (r: Partial<TaskRecord>) => void; onClose: () => void;
+function AssignDailyForm({ agents, categories, date, fixedAgentId, onAssign, onClose }: {
+  agents: Agent[]; categories: Category[]; date: string; fixedAgentId?: string; onAssign: (r: Partial<TaskRecord>) => void; onClose: () => void;
 }) {
   const [agentId, setAgentId] = useState(fixedAgentId || agents[0]?.id || "");
   const [title, setTitle] = useState("");
-  const [category, setCategory] = useState(CATEGORIES[0]);
+  const [category, setCategory] = useState(categories[0]?.name || "");
   const [priority, setPriority] = useState<Priority>("medium");
   const ok = !!agentId && title.trim().length > 1;
 
@@ -111,7 +111,7 @@ function AssignDailyForm({ agents, date, fixedAgentId, onAssign, onClose }: {
         )}
         <Field label="Category">
           <select value={category} onChange={(e) => setCategory(e.target.value)} style={inputStyle}>
-            {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+            {categories.map((c) => <option key={c.id}>{c.name}</option>)}
           </select>
         </Field>
         <Field label="Priority">
@@ -131,8 +131,8 @@ function AssignDailyForm({ agents, date, fixedAgentId, onAssign, onClose }: {
   );
 }
 
-function DailyStaffCard({ staff, tasks, date, canEdit, isAdmin, onStatus, onDelete, onOpen }: {
-  staff: Agent; tasks: TaskRecord[]; date: string; canEdit: boolean; isAdmin: boolean;
+function DailyStaffCard({ staff, tasks, date, categories, canEdit, isAdmin, onStatus, onDelete, onOpen }: {
+  staff: Agent; tasks: TaskRecord[]; date: string; categories: Category[]; canEdit: boolean; isAdmin: boolean;
   onStatus: (id: string, status: Status) => void; onDelete: (id: string) => void; onOpen: (id: string) => void;
 }) {
   const [showEod, setShowEod] = useState(false);
@@ -167,7 +167,7 @@ function DailyStaffCard({ staff, tasks, date, canEdit, isAdmin, onStatus, onDele
             return (
               <div key={t.id} className="flex items-center justify-between flex-wrap gap-2" style={{ background: C.paper, borderRadius: 10, padding: "8px 11px", opacity: DEAD(t.status) ? 0.6 : 1 }}>
                 <div className="flex items-center gap-2" style={{ minWidth: 0 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: 3, background: catC(t.category), flexShrink: 0 }} />
+                  <span style={{ width: 8, height: 8, borderRadius: 3, background: catC(t.category, categories), flexShrink: 0 }} />
                   <button onClick={() => onOpen(t.id)} style={{ fontWeight: 600, fontSize: 13.5, background: "transparent", border: "none", padding: 0, cursor: "pointer", color: C.text, textAlign: "left" }}>{t.title}</button>
                   <Chip color={pm.c} soft={pm.soft} icon={<Flag size={9} />}>{pm.txt}</Chip>
                   <Chip color={m.c} soft={m.soft}>{m.txt}</Chip>

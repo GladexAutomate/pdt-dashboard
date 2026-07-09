@@ -97,8 +97,8 @@ export function TaskDetail({ task, data, actor, isAdmin, canEdit, onClose, updat
         <div className="flex items-start justify-between gap-3" style={{ padding: 18, borderBottom: `1px solid ${C.line}` }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="flex items-center gap-2 flex-wrap mb-1">
-              {t.category && <><span style={{ width: 10, height: 10, borderRadius: 3, background: catC(t.category) }} />
-              <span style={{ fontSize: 11.5, color: catC(t.category), fontWeight: 700 }}>{t.category}</span></>}
+              {t.category && <><span style={{ width: 10, height: 10, borderRadius: 3, background: catC(t.category, data.categories) }} />
+              <span style={{ fontSize: 11.5, color: catC(t.category, data.categories), fontWeight: 700 }}>{t.category}</span></>}
               {t.department && <Chip color={C.ink2} soft={C.paper}>{t.department}</Chip>}
               {t.destination && <Chip color={C.international} soft="#E7EDFB" icon={<MapPin size={10} />}>{t.destination}</Chip>}
               {t.special && <Chip color={C.amber} soft={C.amberSoft} icon={<Sparkles size={10} />}>Special</Chip>}

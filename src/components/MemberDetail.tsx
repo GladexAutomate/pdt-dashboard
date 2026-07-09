@@ -5,10 +5,10 @@ import {
   MapPin, Globe
 } from "lucide-react";
 import { C, card, catC, teamColor, inputStyle } from "../lib/theme";
-import { CATEGORIES, PRIORITIES, PRIORITY_META, STATUS_META, STATUS_ORDER, DEAD, DONEISH, H } from "../lib/constants";
+import { PRIORITIES, PRIORITY_META, STATUS_META, STATUS_ORDER, DEAD, DONEISH, H } from "../lib/constants";
 import { agentStats, speedLabel, pct, actualHrs, speedRatio, dueMeta, fmtDay, fromDateInput, flattenRecords } from "../lib/helpers";
 import { Avatar, Chip, Btn, Field, MiniStat, ProgressBar, StatusSelect } from "./ui";
-import type { Agent, AppData, TaskRecord, Status, Priority, ColKey } from "../lib/types";
+import type { Agent, AppData, TaskRecord, Status, Priority, ColKey, Category } from "../lib/types";
 
 export interface CompletePayload {
   hours: number;
@@ -77,7 +77,7 @@ export function MemberDetail({ agent, data, onBack, addRec, completeRec, deleteR
         </div>
       </div>
 
-      {isAdmin && showAdd && <AddTaskForm agent={agent} onAdd={(t) => { addRec?.("tasks", { ...t, agentId: agent.id }); setShowAdd(false); }} onCancel={() => setShowAdd(false)} />}
+      {isAdmin && showAdd && <AddTaskForm agent={agent} categories={data.categories} onAdd={(t) => { addRec?.("tasks", { ...t, agentId: agent.id }); setShowAdd(false); }} onCancel={() => setShowAdd(false)} />}
 
       {special.length > 0 && (
         <div style={{ ...card, padding: 14, marginBottom: 14, borderColor: C.gold, background: "#FFFBEF" }}>
@@ -98,7 +98,7 @@ export function MemberDetail({ agent, data, onBack, addRec, completeRec, deleteR
         {sorted.map((t) => {
           const col = t._col || "tasks";
           return (
-            <TaskRow key={t.id} t={t} isAdmin={isAdmin} selfView={selfView}
+            <TaskRow key={t.id} t={t} isAdmin={isAdmin} selfView={selfView} categories={data.categories}
               setStatus={(id, st) => setRecStatus(col, id, st)} openDetail={(id) => openDetail(col, id)}
               onStart={() => setRecStatus(col, t.id, "in_progress")} onDelete={isAdmin && deleteRec ? () => deleteRec(col, t.id) : null}
               onEdit={() => setEditing(editing === t.id ? null : t.id)} editing={editing === t.id}
@@ -114,6 +114,7 @@ interface TaskRowProps {
   t: TaskRecord;
   isAdmin: boolean;
   selfView?: boolean;
+  categories: Category[];
   onStart: () => void;
   onDelete: (() => void) | null;
   onEdit: () => void;
@@ -124,7 +125,7 @@ interface TaskRowProps {
 }
 
 /* ---------------- Task row ---------------- */
-function TaskRow({ t, isAdmin, selfView, onStart, onDelete, onEdit, editing, onComplete, setStatus, openDetail }: TaskRowProps) {
+function TaskRow({ t, isAdmin, selfView, categories, onStart, onDelete, onEdit, editing, onComplete, setStatus, openDetail }: TaskRowProps) {
   const sp = speedLabel(speedRatio(t));
   const acc = t.itemsTotal ? (1 - (t.itemsError ?? 0) / t.itemsTotal) * 100 : null;
   const canAct = isAdmin || selfView;
@@ -135,13 +136,13 @@ function TaskRow({ t, isAdmin, selfView, onStart, onDelete, onEdit, editing, onC
       <div className="flex items-start justify-between gap-3">
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="flex items-center gap-2 flex-wrap">
-            <span style={{ width: 9, height: 9, borderRadius: 3, background: catC(t.category), flexShrink: 0 }} />
+            <span style={{ width: 9, height: 9, borderRadius: 3, background: catC(t.category, categories), flexShrink: 0 }} />
             <button onClick={() => openDetail && openDetail(t.id)} style={{ fontWeight: 600, fontSize: 14, textDecoration: t.status === "removed" ? "line-through" : "none", background: "transparent", border: "none", padding: 0, cursor: "pointer", color: C.text, textAlign: "left" }}>{t.title}</button>
             <Chip color={pm.c} soft={pm.soft} icon={<Flag size={10} />}>{pm.txt}</Chip>
             {t.special && <Chip color={C.amber} soft={C.amberSoft} icon={<Sparkles size={11} />}>Special</Chip>}
           </div>
           <div className="flex items-center gap-3 flex-wrap mt-1.5" style={{ fontSize: 12, color: C.sub }}>
-            <span style={{ color: catC(t.category), fontWeight: 600 }}>{t.category}</span>
+            <span style={{ color: catC(t.category, categories), fontWeight: 600 }}>{t.category}</span>
             {t.target && <span className="flex items-center gap-1"><Target size={12} /> {t.target}</span>}
             {t.dueDate && <span className="flex items-center gap-1" style={{ color: dm && dm.over ? C.rose : C.sub, fontWeight: dm && dm.over ? 600 : 400 }}><Clock size={12} /> due {fmtDay(t.dueDate)}{dm && dm.label ? ` · ${dm.label}` : ""}</span>}
             {DONEISH(t.status) && t.completedAt && <span className="flex items-center gap-1" style={{ color: C.teal }}><CalendarCheck size={12} /> done {fmtDay(t.completedAt)}</span>}
@@ -207,9 +208,9 @@ function CompleteForm({ t, onSubmit, onCancel }: { t: TaskRecord; onSubmit: (pay
   );
 }
 
-function AddTaskForm({ agent, onAdd, onCancel }: { agent: Agent; onAdd: (t: Partial<TaskRecord>) => void; onCancel: () => void }) {
+function AddTaskForm({ agent, categories, onAdd, onCancel }: { agent: Agent; categories: Category[]; onAdd: (t: Partial<TaskRecord>) => void; onCancel: () => void }) {
   const [title, setTitle] = useState("");
-  const [category, setCategory] = useState(CATEGORIES[0]);
+  const [category, setCategory] = useState(categories[0]?.name || "");
   const [target, setTarget] = useState("");
   const [est, setEst] = useState("4");
   const [startDate, setStartDate] = useState("");
@@ -227,7 +228,7 @@ function AddTaskForm({ agent, onAdd, onCancel }: { agent: Agent; onAdd: (t: Part
         <div style={{ gridColumn: "1 / -1" }}><Field label="Task title"><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Lakbayhub tour listing" style={inputStyle} /></Field></div>
         <Field label="Category">
           <select value={category} onChange={(e) => setCategory(e.target.value)} style={inputStyle}>
-            {[...CATEGORIES, "Daily Task"].map((c) => <option key={c}>{c}</option>)}
+            {categories.map((c) => <option key={c.id}>{c.name}</option>)}
           </select>
         </Field>
         <Field label="Priority">

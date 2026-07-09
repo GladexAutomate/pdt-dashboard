@@ -7,7 +7,6 @@ import type { Team, Status, Priority, StyleMeta, TrackerConfig, ColKey } from ".
    Teams: Domestic (Ann, Jess, Roselle) / International (Ange, Axel, Pat, Krisha)
    ---------------------------------------------------------------- */
 
-export const CATEGORIES = ["BOT", "Website", "Lakbayhub", "Land arrangement", "Collectives"];
 export const DEPARTMENTS = ["Product Dev", "Operations", "Marketing", "Tech", "Sales", "Finance"];
 export const DESTINATIONS = ["Boracay", "Cebu", "Palawan", "Tokyo", "Bangkok", "Singapore", "Bali", "Seoul", "El Nido"];
 export const COLLECTIONS: ColKey[] = ["tasks", "premium", "gladex", "tariff", "daily"];

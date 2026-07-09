@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Trash2, Pencil, Eye, EyeOff, Check, X, UserCog } from "lucide-react";
+import { Plus, Trash2, Pencil, Eye, EyeOff, Check, X, UserCog, ShieldPlus } from "lucide-react";
 import { C, card, inputStyle, teamColor } from "../lib/theme";
 import { Avatar, Btn, Field, Chip } from "./ui";
 import type { AppData, Agent, Team } from "../lib/types";
@@ -23,6 +23,7 @@ interface UserManagementProps {
   addAgent: (input: NewAgentInput) => Promise<string | null>;
   updateAgent: (id: string, patch: UpdateAgentInput) => Promise<string | null>;
   removeAgent: (id: string) => Promise<string | null>;
+  promoteAgent: (id: string) => Promise<string | null>;
 }
 
 const TEAMS: Team[] = ["Domestic", "International"];
@@ -79,7 +80,9 @@ function AddUserForm({ onAdd, onCancel }: { onAdd: (input: NewAgentInput) => Pro
   );
 }
 
-function UserRow({ agent, onUpdate, onRemove }: { agent: Agent; onUpdate: (id: string, patch: UpdateAgentInput) => Promise<string | null>; onRemove: (id: string) => Promise<string | null> }) {
+function UserRow({ agent, onUpdate, onRemove, onPromote }: {
+  agent: Agent; onUpdate: (id: string, patch: UpdateAgentInput) => Promise<string | null>; onRemove: (id: string) => Promise<string | null>; onPromote: (id: string) => Promise<string | null>;
+}) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(agent.name);
   const [team, setTeam] = useState<Team>(agent.team);
@@ -101,6 +104,11 @@ function UserRow({ agent, onUpdate, onRemove }: { agent: Agent; onUpdate: (id: s
   const remove = () => {
     if (!window.confirm(`Remove ${agent.name}? Their past tasks and history stay, but they won't be able to log in anymore.`)) return;
     onRemove(agent.id);
+  };
+  const promote = async () => {
+    if (!window.confirm(`Promote ${agent.name} to admin? They'll get full admin access using their current username and password, and will no longer appear as an agent — their past task assignments will show as Unassigned.`)) return;
+    const result = await onPromote(agent.id);
+    if (result) window.alert(result);
   };
 
   if (editing) {
@@ -136,6 +144,7 @@ function UserRow({ agent, onUpdate, onRemove }: { agent: Agent; onUpdate: (id: s
       <td style={{ padding: "10px", whiteSpace: "nowrap" }}>
         <div className="flex gap-1.5">
           <button onClick={startEdit} title="Edit / reset password" style={{ color: C.sub, background: "transparent", border: "none", cursor: "pointer" }}><Pencil size={15} /></button>
+          <button onClick={promote} title="Promote to admin" style={{ color: C.gold, background: "transparent", border: "none", cursor: "pointer" }}><ShieldPlus size={15} /></button>
           <button onClick={remove} title="Remove" style={{ color: C.rose, background: "transparent", border: "none", cursor: "pointer" }}><Trash2 size={15} /></button>
         </div>
       </td>
@@ -143,7 +152,7 @@ function UserRow({ agent, onUpdate, onRemove }: { agent: Agent; onUpdate: (id: s
   );
 }
 
-export function UserManagement({ data, addAgent, updateAgent, removeAgent }: UserManagementProps) {
+export function UserManagement({ data, addAgent, updateAgent, removeAgent, promoteAgent }: UserManagementProps) {
   const [showAdd, setShowAdd] = useState(false);
   const sorted = [...data.agents].sort((a, b) => (a.team === b.team ? a.name.localeCompare(b.name) : a.team.localeCompare(b.team)));
 
@@ -171,7 +180,7 @@ export function UserManagement({ data, addAgent, updateAgent, removeAgent }: Use
             </thead>
             <tbody>
               {sorted.length === 0 && <tr><td colSpan={5} style={{ padding: 18, color: C.sub, fontSize: 13 }}>No users yet.</td></tr>}
-              {sorted.map((a) => <UserRow key={a.id} agent={a} onUpdate={updateAgent} onRemove={removeAgent} />)}
+              {sorted.map((a) => <UserRow key={a.id} agent={a} onUpdate={updateAgent} onRemove={removeAgent} onPromote={promoteAgent} />)}
             </tbody>
           </table>
         </div>

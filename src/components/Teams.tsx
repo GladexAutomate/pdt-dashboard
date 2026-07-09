@@ -4,7 +4,7 @@ import { C, card, catC, teamColor, cellStyle, dateInputStyle } from "../lib/them
 import { STATUSES, STATUS_META, STATUS_ORDER, PRIORITIES, PRIORITY_META, DEAD, D } from "../lib/constants";
 import { agentStats, groupStats, speedLabel, pct, dueMeta, toDateInput, fromDateInput } from "../lib/helpers";
 import { Avatar, Chip, Stat, AssigneeSelect, PrioritySelect, StatusSelect, ProgressBar, EditableText } from "./ui";
-import type { AppData, Agent, TaskRecord, Team, Status, Priority } from "../lib/types";
+import type { AppData, Agent, TaskRecord, Team, Status, Priority, Category } from "../lib/types";
 
 interface TeamsProps {
   data: AppData;
@@ -95,7 +95,7 @@ export function Teams({ data, selTeam, setSelTeam, openMember, setStatus, update
           })}
         </div>
       ) : (
-        <TeamTable team={selTeam} members={members} allAgents={data.agents} tasks={teamTasks} setStatus={setStatus} updateTask={updateTask} reassignTask={reassignTask} openDetail={openDetail} />
+        <TeamTable team={selTeam} members={members} allAgents={data.agents} tasks={teamTasks} categories={data.categories} setStatus={setStatus} updateTask={updateTask} reassignTask={reassignTask} openDetail={openDetail} />
       )}
     </div>
   );
@@ -106,6 +106,7 @@ interface TeamTableProps {
   members: Agent[];
   allAgents: Agent[];
   tasks: TaskRecord[];
+  categories: Category[];
   setStatus: (id: string, status: Status) => void;
   updateTask: (id: string, patch: Partial<TaskRecord>) => void;
   reassignTask: (id: string, agentId: string) => void;
@@ -113,7 +114,7 @@ interface TeamTableProps {
 }
 
 /* ---------------- Per-team task table ---------------- */
-function TeamTable({ members, allAgents, tasks, setStatus, updateTask, reassignTask, openDetail }: TeamTableProps) {
+function TeamTable({ members, allAgents, tasks, categories, setStatus, updateTask, reassignTask, openDetail }: TeamTableProps) {
   const [fStatus, setFStatus] = useState<Status | "all">("all");
   const [fStaff, setFStaff] = useState("all");
   const [fPriority, setFPriority] = useState<Priority | "all">("all");
@@ -181,11 +182,11 @@ function TeamTable({ members, allAgents, tasks, setStatus, updateTask, reassignT
                   <tr key={t.id} style={{ borderBottom: `1px solid ${C.line}`, opacity: DEAD(t.status) ? 0.6 : 1 }}>
                     <td style={cellStyle}>
                       <div className="flex items-start gap-2">
-                        <span style={{ marginTop: 4, width: 9, height: 9, borderRadius: 3, background: catC(t.category), flexShrink: 0 }} />
+                        <span style={{ marginTop: 4, width: 9, height: 9, borderRadius: 3, background: catC(t.category, categories), flexShrink: 0 }} />
                         <div>
                           <button onClick={() => openDetail && openDetail(t.id)} style={{ fontWeight: 600, fontSize: 13, textDecoration: t.status === "removed" ? "line-through" : "none", background: "transparent", border: "none", padding: 0, cursor: "pointer", color: C.text, textAlign: "left" }}>{t.title}</button>
                           <div className="flex items-center gap-1.5 mt-0.5">
-                            <span style={{ fontSize: 11, color: catC(t.category), fontWeight: 600 }}>{t.category}</span>
+                            <span style={{ fontSize: 11, color: catC(t.category, categories), fontWeight: 600 }}>{t.category}</span>
                             {t.special && <Chip color={C.amber} soft={C.amberSoft} icon={<Sparkles size={10} />}>Special</Chip>}
                           </div>
                         </div>

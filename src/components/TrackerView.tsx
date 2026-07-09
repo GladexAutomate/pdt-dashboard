@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { Plus, Search, MapPin } from "lucide-react";
 import { C, card, cellStyle, dateInputStyle, catC, teamColor, inputStyle } from "../lib/theme";
-import { CATEGORIES, DEPARTMENTS, DESTINATIONS, PRIORITIES, PRIORITY_META, STATUSES, STATUS_META, STATUS_ORDER, DONEISH, DEAD, COL_LABEL } from "../lib/constants";
+import { DEPARTMENTS, DESTINATIONS, PRIORITIES, PRIORITY_META, STATUSES, STATUS_META, STATUS_ORDER, DONEISH, DEAD, COL_LABEL } from "../lib/constants";
 import { dueMeta, toDateInput, fromDateInput, fmtDay, relTime } from "../lib/helpers";
 import { Chip, Btn, Field, AssigneeSelect, PrioritySelect, StatusSelect, ProgressBar } from "./ui";
-import type { ColKey, TrackerConfig, AppData, Agent, TaskRecord, Status } from "../lib/types";
+import type { ColKey, TrackerConfig, AppData, Agent, TaskRecord, Status, Category } from "../lib/types";
 
 /* ---------------- Project / file trackers ---------------- */
 export function TrackerSummary({ records }: { records: TaskRecord[] }) {
@@ -82,11 +82,11 @@ export function TrackerView({ col, config, data, isAdmin, meId, addRec, updateRe
     switch (key) {
       case "title": return (
         <div className="flex items-start gap-2" style={{ minWidth: 180 }}>
-          <span style={{ marginTop: 4, width: 9, height: 9, borderRadius: 3, background: catC(r.category || r.department), flexShrink: 0 }} />
+          <span style={{ marginTop: 4, width: 9, height: 9, borderRadius: 3, background: catC(r.category || r.department, data.categories), flexShrink: 0 }} />
           <button onClick={() => openDetail(r.id)} style={{ fontWeight: 600, fontSize: 13, background: "transparent", border: "none", padding: 0, cursor: "pointer", color: C.text, textAlign: "left", textDecoration: r.status === "removed" ? "line-through" : "none" }}>{r.title}</button>
         </div>
       );
-      case "category": return r.category ? <span style={{ fontSize: 12, color: catC(r.category), fontWeight: 600 }}>{r.category}</span> : <span style={{ color: C.sub }}>—</span>;
+      case "category": return r.category ? <span style={{ fontSize: 12, color: catC(r.category, data.categories), fontWeight: 600 }}>{r.category}</span> : <span style={{ color: C.sub }}>—</span>;
       case "department": return <span style={{ fontSize: 12.5, fontWeight: 600 }}>{r.department || "—"}</span>;
       case "destination": return r.destination ? <Chip color={C.international} soft="#E7EDFB" icon={<MapPin size={10} />}>{r.destination}</Chip> : <span style={{ color: C.sub }}>—</span>;
       case "assignee": return ce ? <AssigneeSelect value={r.agentId} agents={data.agents} onChange={(nid) => reassignRec(col, r.id, nid)} /> : <span style={{ fontSize: 12.5, fontWeight: 600 }}>{agentName(r.agentId)}</span>;
@@ -118,7 +118,7 @@ export function TrackerView({ col, config, data, isAdmin, meId, addRec, updateRe
 
       <TrackerSummary records={records} />
 
-      {showAdd && <AddRecordForm col={col} config={config} agents={data.agents} meId={meId} isAdmin={isAdmin}
+      {showAdd && <AddRecordForm col={col} config={config} agents={data.agents} categories={data.categories} meId={meId} isAdmin={isAdmin}
         onAdd={(r) => { addRec(col, r); setShowAdd(false); }} onCancel={() => setShowAdd(false)} />}
 
       {/* search + filters */}
@@ -174,12 +174,12 @@ interface AddRecordFormState {
   description: string;
 }
 
-function AddRecordForm({ config, agents, meId, onAdd, onCancel }: {
-  col: ColKey; config: TrackerConfig; agents: Agent[]; meId?: string; isAdmin: boolean;
+function AddRecordForm({ config, agents, categories, meId, onAdd, onCancel }: {
+  col: ColKey; config: TrackerConfig; agents: Agent[]; categories: Category[]; meId?: string; isAdmin: boolean;
   onAdd: (r: Partial<TaskRecord>) => void; onCancel: () => void;
 }) {
   const [f, setF] = useState<AddRecordFormState>({
-    title: "", category: CATEGORIES[0], department: DEPARTMENTS[0], destination: DESTINATIONS[0],
+    title: "", category: categories[0]?.name || "", department: DEPARTMENTS[0], destination: DESTINATIONS[0],
     priority: "medium", agentId: meId || agents[0].id, start: "", due: "", description: ""
   });
   const set = (k: keyof AddRecordFormState, v: string) => setF((p) => ({ ...p, [k]: v }));
@@ -201,7 +201,7 @@ function AddRecordForm({ config, agents, meId, onAdd, onCancel }: {
       <div className="flex items-center gap-2 mb-3"><Plus size={16} color={C.teal} /><span style={{ fontWeight: 700, fontSize: 14 }}>New {config.label} record</span></div>
       <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))" }}>
         <div style={{ gridColumn: "1 / -1" }}><Field label={config.titleLabel}><input value={f.title} onChange={(e) => set("title", e.target.value)} placeholder={config.titleLabel} style={inputStyle} /></Field></div>
-        {has("category") && <Field label="Category"><select value={f.category} onChange={(e) => set("category", e.target.value)} style={inputStyle}>{CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></Field>}
+        {has("category") && <Field label="Category"><select value={f.category} onChange={(e) => set("category", e.target.value)} style={inputStyle}>{categories.map((c) => <option key={c.id}>{c.name}</option>)}</select></Field>}
         {has("department") && <Field label="Department"><select value={f.department} onChange={(e) => set("department", e.target.value)} style={inputStyle}>{DEPARTMENTS.map((c) => <option key={c}>{c}</option>)}</select></Field>}
         {has("destination") && <Field label="Destination"><select value={f.destination} onChange={(e) => set("destination", e.target.value)} style={inputStyle}>{DESTINATIONS.map((c) => <option key={c}>{c}</option>)}</select></Field>}
         {has("priority") && <Field label="Priority"><select value={f.priority} onChange={(e) => set("priority", e.target.value)} style={inputStyle}>{PRIORITIES.map((p) => <option key={p} value={p}>{PRIORITY_META[p].txt}</option>)}</select></Field>}
