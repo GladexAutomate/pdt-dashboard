@@ -2,6 +2,13 @@
 -- hardcoded CATEGORIES list in the code, and (2) a promote_agent_to_admin
 -- RPC so an existing agent can be turned into an admin from the app.
 -- Run this once in the Supabase SQL editor. Safe to run more than once.
+--
+-- NOTE: part (2) below (promote_agent_to_admin) is now OBSOLETE — it moved
+-- an agent's row into `admins`, which dropped them out of team rosters and
+-- task assignment entirely. It's been replaced by an is_admin flag on
+-- agents (see migration_agent_admin_flag.sql), which also adds the missing
+-- "revoke admin" side. Still run this file for the categories table; the
+-- next migration will drop promote_agent_to_admin for you.
 
 set search_path = public, extensions;
 

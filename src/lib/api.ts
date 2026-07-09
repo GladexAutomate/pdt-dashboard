@@ -133,7 +133,7 @@ export async function fetchAppData(): Promise<AppData> {
     if (res.error) throw res.error;
   }
 
-  const agents: Agent[] = (agentsRes.data || []).map((r) => ({ id: r.id, name: r.name, team: r.team, username: r.username }));
+  const agents: Agent[] = (agentsRes.data || []).map((r) => ({ id: r.id, name: r.name, team: r.team, username: r.username, isAdmin: r.is_admin }));
   const categories: Category[] = (categoriesRes.data || []).map((r) => ({ id: r.id, name: r.name, color: r.color }));
 
   const byCol: Record<ColKey, TaskRecord[]> = { tasks: [], premium: [], gladex: [], tariff: [], daily: [] };
@@ -283,8 +283,8 @@ export async function updateAdminRow(id: string, input: UpdateAdminInput): Promi
   });
   if (error) throw error;
 }
-export async function promoteAgentToAdmin(id: string): Promise<void> {
-  const { error } = await supabase.rpc("promote_agent_to_admin", { p_id: id });
+export async function setAgentAdmin(id: string, isAdmin: boolean): Promise<void> {
+  const { error } = await supabase.rpc("set_agent_admin", { p_id: id, p_is_admin: isAdmin });
   if (error) throw error;
 }
 

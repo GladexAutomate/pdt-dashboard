@@ -5,7 +5,7 @@ import {
 
 import { C } from "./lib/theme";
 import { TRACKERS, DONEISH, H, STATUS_META } from "./lib/constants";
-import { fetchAppData, insertRecord, updateRecordRow, deleteRecordRow, insertLog, upsertReport, setKpiProgressRow, insertKpiDefRow, updateKpiDefRow, deleteKpiDefRow, subscribeToChanges, createAgent, updateAgentRow, deleteAgentRow, updateAdminRow, insertCategoryRow, updateCategoryRow, deleteCategoryRow, promoteAgentToAdmin } from "./lib/api";
+import { fetchAppData, insertRecord, updateRecordRow, deleteRecordRow, insertLog, upsertReport, setKpiProgressRow, insertKpiDefRow, updateKpiDefRow, deleteKpiDefRow, subscribeToChanges, createAgent, updateAgentRow, deleteAgentRow, updateAdminRow, insertCategoryRow, updateCategoryRow, deleteCategoryRow, setAgentAdmin } from "./lib/api";
 import type {
   AppData, TaskRecord, Status, Team, ColKey, LogEntry, ReportState, Session,
   LoginResult, DetailTarget, Agent, ActivityEntry, CommentEntry, KpiDef, Category
@@ -250,7 +250,7 @@ export default function App() {
     } catch (e) {
       return e instanceof Error ? e.message : "Failed to add user.";
     }
-    const agent: Agent = { id, name: input.name.trim(), team: input.team, username };
+    const agent: Agent = { id, name: input.name.trim(), team: input.team, username, isAdmin: false };
     persist((d) => ({ ...d, agents: [...d.agents, agent] }));
     log({ userId: actor().id, name: actor().name, role: actor().role, type: "create", detail: `Added user "${agent.name}"` });
     return null;
@@ -280,9 +280,25 @@ export default function App() {
     return null;
   };
   const updateAdmin = async (input: UpdateAdminInput): Promise<string | null> => {
-    if (!session || session.role !== "admin" || !session.id) return "Not signed in as admin.";
+    if (!session || session.role !== "admin") return "Not signed in as admin.";
     const clean: UpdateAdminInput = { ...input };
     if (clean.username) clean.username = clean.username.trim().toLowerCase();
+    if (session.agentId) {
+      // hybrid admin (an agent with is_admin=true) — there's no separate admins
+      // row to update, so this edits their agent record directly via
+      // update_agent, same path any admin uses to edit an agent (no
+      // current-password check there, unlike the pure-admin path below).
+      try {
+        await updateAgentRow(session.agentId, { name: clean.name, username: clean.username, password: clean.password });
+      } catch (e) {
+        return e instanceof Error ? e.message : "Failed to update account.";
+      }
+      persist((d) => ({ ...d, agents: d.agents.map((a) => (a.id === session.agentId ? { ...a, name: clean.name || a.name, username: clean.username || a.username } : a)) }));
+      setSession((s) => (s ? { ...s, name: clean.name || s.name, username: clean.username || s.username } : s));
+      log({ userId: session.agentId, name: clean.name || session.name, role: "admin", type: "status", detail: "Updated own account" });
+      return null;
+    }
+    if (!session.id) return "Not signed in as admin.";
     try {
       await updateAdminRow(session.id, clean);
     } catch (e) {
@@ -292,22 +308,15 @@ export default function App() {
     log({ userId: session.id, name: clean.name || session.name, role: "admin", type: "status", detail: "Updated own account" });
     return null;
   };
-  const promoteAgent = async (id: string): Promise<string | null> => {
+  const setAgentAdminFlag = async (id: string, isAdmin: boolean): Promise<string | null> => {
     const a = data?.agents.find((x) => x.id === id);
     try {
-      await promoteAgentToAdmin(id);
+      await setAgentAdmin(id, isAdmin);
     } catch (e) {
-      return e instanceof Error ? e.message : "Failed to promote agent.";
+      return e instanceof Error ? e.message : "Failed to update admin access.";
     }
-    // agent → admin moves data across two tables server-side (and detaches their
-    // past task assignments), so refetch rather than trying to patch local state.
-    try {
-      const fresh = await fetchAppData();
-      setData(fresh);
-    } catch (e) {
-      console.error("Failed to refresh after promotion", e);
-    }
-    log({ userId: actor().id, name: actor().name, role: actor().role, type: "status", detail: `Promoted "${a?.name}" to admin` });
+    persist((d) => ({ ...d, agents: d.agents.map((x) => (x.id === id ? { ...x, isAdmin } : x)) }));
+    log({ userId: actor().id, name: actor().name, role: actor().role, type: "status", detail: `${isAdmin ? "Granted" : "Revoked"} admin access for "${a?.name}"` });
     return null;
   };
 
@@ -374,11 +383,16 @@ export default function App() {
   };
 
   const doLogin = (result: LoginResult) => {
+    // result.team is only set when the match came from `agents` — a hybrid
+    // admin (is_admin=true) keeps their agentId instead of an admins-row id,
+    // so "My Account" and any agent-aware logic can find their real record.
     const sess: Session = result.role === "admin"
-      ? { role: "admin", id: result.id, username: result.username, name: result.name }
+      ? (result.team
+          ? { role: "admin", agentId: result.id, name: result.name }
+          : { role: "admin", id: result.id, username: result.username, name: result.name })
       : { role: "agent", agentId: result.id, name: result.name };
     setSession(sess); setAdminTab("home"); setAgentTab("home"); setSelTeam(null); setSelAgent(null);
-    log({ userId: result.role === "admin" ? "admin" : result.id, name: sess.name, role: sess.role, type: "login", detail: "Signed in" });
+    log({ userId: result.id, name: sess.name, role: sess.role, type: "login", detail: "Signed in" });
   };
 
   if (loading) return <div style={{ padding: 40, color: C.sub, fontFamily: "ui-sans-serif, system-ui" }}>Loading dashboard…</div>;
@@ -413,7 +427,7 @@ export default function App() {
           active={adminTab} setActive={(t) => { setAdminTab(t); setSelTeam(null); setSelAgent(null); }}>
           {adminTab === "home" && <AdminHome data={data} go={(team) => { setAdminTab("teams"); setSelTeam(team as Team); }} />}
             {adminTab === "daily" && <DailyTasking {...trackerProps("daily")} isAdmin />}
-          {adminTab === "users" && <UserManagement data={data} addAgent={addAgent} updateAgent={updateAgent} removeAgent={removeAgent} promoteAgent={promoteAgent} />}
+          {adminTab === "users" && <UserManagement data={data} addAgent={addAgent} updateAgent={updateAgent} removeAgent={removeAgent} setAgentAdmin={setAgentAdminFlag} />}
           {adminTab === "categories" && <CategoryManagement categories={data.categories} addCategory={addCategory} updateCategory={updateCategory} removeCategory={removeCategory} />}
           {adminTab === "kpi" && <KpiDashboard data={data} isAdmin setKpi={setKpiValue} addDef={addKpiDef} updateDef={updateKpiDef} removeDef={removeKpiDef} />}
           {adminTab === "logs" && <Logs logs={data.logs} />}

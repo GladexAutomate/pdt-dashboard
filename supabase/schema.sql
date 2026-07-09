@@ -13,11 +13,15 @@ create table if not exists agents (
   name     text not null,
   team     text not null check (team in ('Domestic', 'International')),
   username text not null unique,
-  password text not null
+  password text not null,
+  is_admin boolean not null default false
 );
+alter table agents add column if not exists is_admin boolean not null default false;
 
--- ---------- admin account (kept separate from agents so it never
---            shows up in team rosters / assignee dropdowns / stats) ----------
+-- ---------- admin account (kept separate from agents for the pure back-office
+--            supervisor identity that never does tasking — an agent can also
+--            gain full admin login via agents.is_admin, see set_agent_admin
+--            below, without losing their team/roster/task-history standing) ----------
 create table if not exists admins (
   id       text primary key default 'admin',
   username text not null unique,
@@ -30,7 +34,7 @@ create table if not exists admins (
 -- this bypasses the RLS lockdown on `agents` below while never exposing
 -- password hashes.
 create or replace view agents_public as
-  select id, name, team, username from agents;
+  select id, name, team, username, is_admin from agents;
 
 -- ---------- records: unifies tasks / premium / gladex / tariff / daily ----------
 -- "daily" tasks are ordinary records too (same title/category/priority/status
@@ -150,7 +154,7 @@ begin
     limit 1;
   if result is not null then return result; end if;
 
-  select jsonb_build_object('role', 'agent', 'id', id, 'username', username, 'name', name, 'team', team)
+  select jsonb_build_object('role', case when is_admin then 'admin' else 'agent' end, 'id', id, 'username', username, 'name', name, 'team', team)
     into result from agents
     where username = lower(p_username) and password = crypt(p_password, password)
     limit 1;
@@ -238,26 +242,19 @@ begin
 end;
 $$;
 
--- Moves an existing agent's login into admins, keeping their username/password/name
--- as-is (so they can log back in immediately with what they already know) and
--- removing them from agents. Same trade-off as delete_agent: their past task
--- assignments aren't deleted, but agent_id on those records goes to null
--- (shows as "Unassigned") since the agent row is gone.
-create or replace function public.promote_agent_to_admin(p_id text)
+-- Grants or revokes admin login for an existing agent, in place — they keep
+-- their team, task history, and eligibility for new assignments either way;
+-- the flag only changes what role login() hands back for their username.
+drop function if exists public.promote_agent_to_admin(text);
+
+create or replace function public.set_agent_admin(p_id text, p_is_admin boolean)
 returns void
 language plpgsql
 security definer
 set search_path = public, extensions
 as $$
-declare
-  a agents;
 begin
-  select * into a from agents where id = p_id;
-  if a is null then
-    raise exception 'Agent not found.';
-  end if;
-  insert into admins (id, username, password, name) values (a.id, a.username, a.password, a.name);
-  delete from agents where id = p_id;
+  update agents set is_admin = p_is_admin where id = p_id;
 end;
 $$;
 
@@ -266,13 +263,13 @@ revoke all on function public.create_agent(text, text, text, text, text) from pu
 revoke all on function public.update_agent(text, text, text, text, text) from public;
 revoke all on function public.delete_agent(text) from public;
 revoke all on function public.update_admin(text, text, text, text, text) from public;
-revoke all on function public.promote_agent_to_admin(text) from public;
+revoke all on function public.set_agent_admin(text, boolean) from public;
 grant execute on function public.login(text, text) to anon, authenticated;
 grant execute on function public.create_agent(text, text, text, text, text) to anon, authenticated;
 grant execute on function public.update_agent(text, text, text, text, text) to anon, authenticated;
 grant execute on function public.delete_agent(text) to anon, authenticated;
 grant execute on function public.update_admin(text, text, text, text, text) to anon, authenticated;
-grant execute on function public.promote_agent_to_admin(text) to anon, authenticated;
+grant execute on function public.set_agent_admin(text, boolean) to anon, authenticated;
 
 -- ---------- Row Level Security ----------
 -- NOTE (security tradeoff, please read):

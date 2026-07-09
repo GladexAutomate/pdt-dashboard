@@ -31,6 +31,7 @@ export interface Agent {
   name: string;
   team: Team;
   username: string;
+  isAdmin: boolean;
 }
 
 export interface CommentEntry {
