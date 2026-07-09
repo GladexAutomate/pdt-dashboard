@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  CalendarCheck, Plus, Users, MapPin, Globe, Play, CheckCircle2, Send, Trash2, Clock, Activity, FileText, Flag
+  CalendarCheck, Plus, Users, MapPin, Globe, Play, Pause, CheckCircle2, Send, Trash2, Clock, Activity, FileText, Flag
 } from "lucide-react";
 import { C, card, catC, teamColor, inputStyle } from "../lib/theme";
 import { PRIORITIES, PRIORITY_META, STATUS_META, DONEISH, DEAD } from "../lib/constants";
@@ -175,6 +175,8 @@ function DailyStaffCard({ staff, tasks, date, categories, canEdit, isAdmin, onSt
                 </div>
                 <div className="flex items-center gap-1.5">
                   {canEdit && t.status === "pending" && <Btn sm kind="ghost" icon={<Play size={12} />} onClick={() => onStatus(t.id, "in_progress")}>Start</Btn>}
+                  {canEdit && t.status === "in_progress" && <Btn sm kind="ghost" icon={<Pause size={12} />} onClick={() => onStatus(t.id, "on_hold")}>Pause</Btn>}
+                  {canEdit && t.status === "on_hold" && <Btn sm kind="ghost" icon={<Play size={12} />} onClick={() => onStatus(t.id, "in_progress")}>Resume</Btn>}
                   {canEdit && t.status === "in_progress" && <Btn sm kind="ghost" icon={<CheckCircle2 size={12} />} onClick={() => onStatus(t.id, "completed")}>Complete</Btn>}
                   {canEdit && t.status === "completed" && <Btn sm kind="teal" icon={<Send size={12} />} onClick={() => onStatus(t.id, "published")}>Publish</Btn>}
                   {isAdmin && <button onClick={() => onDelete(t.id)} title="Remove" style={{ color: C.rose, background: "none", border: "none", cursor: "pointer" }}><Trash2 size={14} /></button>}

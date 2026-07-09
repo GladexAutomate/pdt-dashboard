@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import {
   ArrowLeft, Plus, Target, Package, Send, Gauge, ShieldCheck, AlertTriangle, Sparkles,
-  Play, CheckCircle2, Trash2, Clock, CalendarCheck, MessageSquare, Link2, Paperclip, Flag, FileText,
+  Play, Pause, CheckCircle2, Trash2, Clock, CalendarCheck, MessageSquare, Link2, Paperclip, Flag, FileText,
   MapPin, Globe
 } from "lucide-react";
 import { C, card, catC, teamColor, inputStyle } from "../lib/theme";
@@ -100,7 +100,8 @@ export function MemberDetail({ agent, data, onBack, addRec, completeRec, deleteR
           return (
             <TaskRow key={t.id} t={t} isAdmin={isAdmin} selfView={selfView} categories={data.categories}
               setStatus={(id, st) => setRecStatus(col, id, st)} openDetail={(id) => openDetail(col, id)}
-              onStart={() => setRecStatus(col, t.id, "in_progress")} onDelete={isAdmin && deleteRec ? () => deleteRec(col, t.id) : null}
+              onStart={() => setRecStatus(col, t.id, "in_progress")} onPause={() => setRecStatus(col, t.id, "on_hold")}
+              onDelete={isAdmin && deleteRec ? () => deleteRec(col, t.id) : null}
               onEdit={() => setEditing(editing === t.id ? null : t.id)} editing={editing === t.id}
               onComplete={(payload) => { completeRec(col, t.id, payload); setEditing(null); }} />
           );
@@ -116,6 +117,7 @@ interface TaskRowProps {
   selfView?: boolean;
   categories: Category[];
   onStart: () => void;
+  onPause: () => void;
   onDelete: (() => void) | null;
   onEdit: () => void;
   editing: boolean;
@@ -125,7 +127,7 @@ interface TaskRowProps {
 }
 
 /* ---------------- Task row ---------------- */
-function TaskRow({ t, isAdmin, selfView, categories, onStart, onDelete, onEdit, editing, onComplete, setStatus, openDetail }: TaskRowProps) {
+function TaskRow({ t, isAdmin, selfView, categories, onStart, onPause, onDelete, onEdit, editing, onComplete, setStatus, openDetail }: TaskRowProps) {
   const sp = speedLabel(speedRatio(t));
   const acc = t.itemsTotal ? (1 - (t.itemsError ?? 0) / t.itemsTotal) * 100 : null;
   const canAct = isAdmin || selfView;
@@ -176,9 +178,13 @@ function TaskRow({ t, isAdmin, selfView, categories, onStart, onDelete, onEdit, 
         {canAct && !DEAD(t.status) && t.status !== "published" && (
           <>
             {t.status === "pending" && <Btn onClick={onStart} kind="ghost" sm icon={<Play size={13} />}>Start</Btn>}
-            <Btn onClick={onEdit} kind={t.status === "completed" ? "teal" : "ghost"} sm icon={<CheckCircle2 size={13} />}>
-              {t.status === "completed" ? "Publish / edit" : "Record completion"}
-            </Btn>
+            {t.status === "in_progress" && <Btn onClick={onPause} kind="ghost" sm icon={<Pause size={13} />}>Pause</Btn>}
+            {t.status === "on_hold" && <Btn onClick={onStart} kind="ghost" sm icon={<Play size={13} />}>Resume</Btn>}
+            {t.status !== "on_hold" && (
+              <Btn onClick={onEdit} kind={t.status === "completed" ? "teal" : "ghost"} sm icon={<CheckCircle2 size={13} />}>
+                {t.status === "completed" ? "Publish / edit" : "Record completion"}
+              </Btn>
+            )}
           </>
         )}
       </div>
