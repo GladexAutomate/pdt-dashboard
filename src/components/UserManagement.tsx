@@ -27,7 +27,7 @@ interface UserManagementProps {
 
 const TEAMS: Team[] = ["Domestic", "International"];
 
-function PasswordField({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
+export function PasswordField({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
   const [show, setShow] = useState(false);
   return (
     <div className="flex items-center gap-1.5" style={{ ...inputStyle, padding: "2px 6px" }}>

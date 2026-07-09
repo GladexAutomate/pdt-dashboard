@@ -1,12 +1,12 @@
 import type { ReactNode } from "react";
-import { Package, LogOut } from "lucide-react";
+import { Package, LogOut, UserCog } from "lucide-react";
 import { C } from "../lib/theme";
 import { Btn } from "./ui";
 import type { Session } from "../lib/types";
 
 /* ---------------- Shell ---------------- */
-export function Shell({ session, onLogout, tabs, active, setActive, children }: {
-  session: Session; onLogout: () => void; tabs: [string, string, ReactNode][];
+export function Shell({ session, onLogout, onAccount, tabs, active, setActive, children }: {
+  session: Session; onLogout: () => void; onAccount?: () => void; tabs: [string, string, ReactNode][];
   active: string; setActive: (id: string) => void; children?: ReactNode;
 }) {
   return (
@@ -26,6 +26,7 @@ export function Shell({ session, onLogout, tabs, active, setActive, children }: 
             <div style={{ fontSize: 13, fontWeight: 600 }}>{session.name}</div>
             <div style={{ fontSize: 11, color: C.sub, textTransform: "capitalize" }}>{session.role}</div>
           </div>
+          {onAccount && <Btn onClick={onAccount} kind="ghost" sm icon={<UserCog size={14} />}>Account</Btn>}
           <Btn onClick={onLogout} kind="ghost" sm icon={<LogOut size={14} />}>Logout</Btn>
         </div>
       </header>

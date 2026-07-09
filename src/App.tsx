@@ -5,13 +5,14 @@ import {
 
 import { C } from "./lib/theme";
 import { TRACKERS, DONEISH, H, STATUS_META } from "./lib/constants";
-import { fetchAppData, insertRecord, updateRecordRow, deleteRecordRow, insertLog, upsertReport, setKpiProgressRow, insertKpiDefRow, updateKpiDefRow, deleteKpiDefRow, subscribeToChanges, createAgent, updateAgentRow, deleteAgentRow } from "./lib/api";
+import { fetchAppData, insertRecord, updateRecordRow, deleteRecordRow, insertLog, upsertReport, setKpiProgressRow, insertKpiDefRow, updateKpiDefRow, deleteKpiDefRow, subscribeToChanges, createAgent, updateAgentRow, deleteAgentRow, updateAdminRow } from "./lib/api";
 import type {
   AppData, TaskRecord, Status, Team, ColKey, LogEntry, ReportState, Session,
   LoginResult, DetailTarget, Agent, ActivityEntry, CommentEntry, KpiDef
 } from "./lib/types";
 import { Login } from "./components/Login";
 import { Shell } from "./components/Shell";
+import { AdminAccount, type UpdateAdminInput } from "./components/AdminAccount";
 import { AdminHome } from "./components/AdminHome";
 import { Teams } from "./components/Teams";
 import { MemberDetail, type CompletePayload } from "./components/MemberDetail";
@@ -37,6 +38,7 @@ export default function App() {
   const [selAgent, setSelAgent] = useState<string | null>(null);
   const [detail, setDetail] = useState<DetailTarget | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [showAccount, setShowAccount] = useState(false);
 
   useEffect(() => {
     if (!toast) return;
@@ -276,6 +278,19 @@ export default function App() {
     log({ userId: actor().id, name: actor().name, role: actor().role, type: "status", detail: `Removed user "${a?.name}"` });
     return null;
   };
+  const updateAdmin = async (input: UpdateAdminInput): Promise<string | null> => {
+    if (!session || session.role !== "admin" || !session.id) return "Not signed in as admin.";
+    const clean: UpdateAdminInput = { ...input };
+    if (clean.username) clean.username = clean.username.trim().toLowerCase();
+    try {
+      await updateAdminRow(session.id, clean);
+    } catch (e) {
+      return e instanceof Error ? e.message : "Failed to update account.";
+    }
+    setSession((s) => (s ? { ...s, name: clean.name || s.name, username: clean.username || s.username } : s));
+    log({ userId: session.id, name: clean.name || session.name, role: "admin", type: "status", detail: "Updated own account" });
+    return null;
+  };
 
   /* ---- task-specific wrappers (keep existing components working) ----
      Daily tasks are just addRec("daily", ...) etc. — see DailyTasking.tsx,
@@ -299,7 +314,7 @@ export default function App() {
 
   const doLogin = (result: LoginResult) => {
     const sess: Session = result.role === "admin"
-      ? { role: "admin", name: result.name }
+      ? { role: "admin", id: result.id, username: result.username, name: result.name }
       : { role: "agent", agentId: result.id, name: result.name };
     setSession(sess); setAdminTab("home"); setAgentTab("home"); setSelTeam(null); setSelAgent(null);
     log({ userId: result.role === "admin" ? "admin" : result.id, name: sess.name, role: sess.role, type: "login", detail: "Signed in" });
@@ -332,7 +347,7 @@ export default function App() {
       {!session ? (
         <Login onLogin={doLogin} />
       ) : session.role === "admin" ? (
-        <Shell session={session} onLogout={() => setSession(null)}
+        <Shell session={session} onLogout={() => setSession(null)} onAccount={() => setShowAccount(true)}
           tabs={[["home", "Dashboard", <LayoutDashboard size={16} />], ["teams", "Teams", <Users size={16} />], ["daily", "Daily Tasking", <CalendarCheck size={16} />], ["users", "Users", <UserCog size={16} />], ["kpi", "KPI Targets", <Target size={16} />], ["premium", "PREMIUM", <Sparkles size={16} />], ["gladex", "GLADEX", <Package size={16} />], ["tariff", "Tariff", <FileText size={16} />], ["report", "Monthly Report", <Gauge size={16} />], ["logs", "Logs", <ScrollText size={16} />]]}
           active={adminTab} setActive={(t) => { setAdminTab(t); setSelTeam(null); setSelAgent(null); }}>
           {adminTab === "home" && <AdminHome data={data} go={(team) => { setAdminTab("teams"); setSelTeam(team as Team); }} />}
@@ -379,6 +394,9 @@ export default function App() {
           addComment={(id, text) => addRecComment(detail.col, id, text)}
           pushActivity={(id, ty, tx) => pushRecActivity(detail.col, id, ty, tx)}
           deleteTask={(id) => { deleteRec(detail.col, id); setDetail(null); }} />
+      )}
+      {showAccount && session?.role === "admin" && (
+        <AdminAccount session={session} onSave={updateAdmin} onClose={() => setShowAccount(false)} />
       )}
       {toast && (
         <div style={{

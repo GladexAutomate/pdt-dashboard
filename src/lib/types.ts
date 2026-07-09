@@ -153,6 +153,8 @@ export interface AppData {
 export interface Session {
   role: "admin" | "agent";
   agentId?: string;
+  id?: string; // admin row id (e.g. "admin") — lets the account panel target the right row
+  username?: string;
   name: string;
 }
 

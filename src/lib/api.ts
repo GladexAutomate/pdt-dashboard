@@ -254,6 +254,19 @@ export async function deleteAgentRow(id: string): Promise<void> {
   if (error) throw error;
 }
 
+export interface UpdateAdminInput {
+  currentPassword: string;
+  name?: string;
+  username?: string;
+  password?: string;
+}
+export async function updateAdminRow(id: string, input: UpdateAdminInput): Promise<void> {
+  const { error } = await supabase.rpc("update_admin", {
+    p_id: id, p_current_password: input.currentPassword, p_name: input.name ?? null, p_username: input.username ?? null, p_new_password: input.password ?? null
+  });
+  if (error) throw error;
+}
+
 export function subscribeToChanges(onChange: () => void): () => void {
   const channel = supabase
     .channel("pdt-changes")
