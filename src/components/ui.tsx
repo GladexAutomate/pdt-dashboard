@@ -22,7 +22,7 @@ export function Chip({ children, color, soft, icon }: { children: ReactNode; col
   );
 }
 
-type BtnKind = "primary" | "teal" | "ghost" | "danger";
+type BtnKind = "primary" | "teal" | "ghost" | "danger" | "blue";
 
 export function Btn({ children, onClick, kind = "primary", icon, sm, disabled }: {
   children?: ReactNode; onClick?: () => void; kind?: BtnKind; icon?: ReactNode; sm?: boolean; disabled?: boolean;
@@ -31,7 +31,8 @@ export function Btn({ children, onClick, kind = "primary", icon, sm, disabled }:
     primary: { background: C.ink, color: "#fff", border: `1px solid ${C.ink}` },
     teal: { background: C.teal, color: "#fff", border: `1px solid ${C.teal}` },
     ghost: { background: "#fff", color: C.text, border: `1px solid ${C.line}` },
-    danger: { background: "#fff", color: C.rose, border: `1px solid ${C.roseSoft}` }
+    danger: { background: "#fff", color: C.rose, border: `1px solid ${C.roseSoft}` },
+    blue: { background: C.international, color: "#fff", border: `1px solid ${C.international}` }
   };
   const style = styles[kind];
   return (

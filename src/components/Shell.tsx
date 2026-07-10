@@ -27,7 +27,7 @@ export function Shell({ session, onLogout, onAccount, tabs, active, setActive, c
             <div style={{ fontSize: 11, color: C.sub, textTransform: "capitalize" }}>{session.role}</div>
           </div>
           {onAccount && <Btn onClick={onAccount} kind="ghost" sm icon={<UserCog size={14} />}>Account</Btn>}
-          <Btn onClick={onLogout} kind="ghost" sm icon={<LogOut size={14} />}>Logout</Btn>
+          <Btn onClick={onLogout} kind="blue" sm icon={<LogOut size={14} />}>Logout</Btn>
         </div>
       </header>
       <nav className="flex gap-1 flex-wrap" style={{ background: C.surface, borderBottom: `1px solid ${C.line}`, padding: "0 12px" }}>
