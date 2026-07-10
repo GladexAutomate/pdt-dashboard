@@ -44,7 +44,10 @@ export function MemberDetail({ agent, data, onBack, addRec, completeRec, deleteR
   // matches agentStats' credit rule: finished work stays on the list of
   // whoever finished it, not whoever currently holds the task, so the card
   // is still there for them to review even after a reassignment.
-  const tasks = pool.filter((t) => (DONEISH(t.status) && t.completedBy ? t.completedBy === agent.name : t.agentId === agent.id));
+  const tasks = pool.filter((t) =>
+    (t.collaboratorIds || []).includes(agent.id) ||
+    (DONEISH(t.status) && t.completedBy ? t.completedBy === agent.name : t.agentId === agent.id)
+  );
   const special = tasks.filter((t) => t.special && !DEAD(t.status));
   const sorted = [...tasks].sort((a, b) => (STATUS_ORDER[a.status] - STATUS_ORDER[b.status]) || ((a.dueDate || Infinity) - (b.dueDate || Infinity)));
 

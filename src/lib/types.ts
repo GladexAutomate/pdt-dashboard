@@ -100,6 +100,7 @@ export interface TaskRecord {
   proofCount?: number;
   comments?: CommentEntry[];
   activity?: ActivityEntry[];
+  collaboratorIds?: string[];
   assignedBy?: string;
   completedBy?: string | null;
   updatedAt?: number;

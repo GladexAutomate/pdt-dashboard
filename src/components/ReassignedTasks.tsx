@@ -16,24 +16,30 @@ interface ReassignedTasksProps {
    Reassignment is already tracked — every handoff logs an activity entry
    (see reassignRec in App.tsx). This is just a filtered view over that
    existing history, across every collection, so continuity is easy to spot
-   without hunting through each tracker individually. */
+   without hunting through each tracker individually. An agent sees both
+   directions: tasks currently theirs (received), and ones they used to hold
+   and handed off (matched by name appearing in a past hop's text) — otherwise
+   the person who gave a task away has no way to find where it went. */
 export function ReassignedTasks({ data, isAdmin, meId, openDetail }: ReassignedTasksProps) {
+  const meName = data.agents.find((a) => a.id === meId)?.name;
   const withHandoffs = flattenRecords(data)
     .map((t) => ({ t, hops: (t.activity || []).filter((a) => a.type === "reassign") }))
     .filter((x) => x.hops.length > 0);
-  const scoped = isAdmin ? withHandoffs : withHandoffs.filter((x) => x.t.agentId === meId);
+  const scoped = isAdmin ? withHandoffs : withHandoffs.filter((x) =>
+    x.t.agentId === meId || (meName && x.hops.some((h) => h.text.includes(meName)))
+  );
   const sorted = [...scoped].sort((a, b) => b.hops[b.hops.length - 1].ts - a.hops[a.hops.length - 1].ts);
 
   return (
     <div>
       <div className="flex items-center gap-2 mb-1"><ArrowRightLeft size={20} color={C.ink} /><h2 style={{ fontSize: 19, fontWeight: 700 }}>Reassigned Tasks</h2></div>
       <div style={{ fontSize: 12.5, color: C.sub, marginBottom: 14 }}>
-        {isAdmin ? "Tasks handed from one person to another, across every tracker." : "Tasks that were handed to you to continue."}
+        {isAdmin ? "Tasks handed from one person to another, across every tracker." : "Tasks handed to you to continue, and tasks you've handed off to someone else."}
       </div>
       <div className="space-y-2.5">
         {sorted.length === 0 && (
           <div style={{ ...card, padding: 18, color: C.sub, fontSize: 13.5 }}>
-            No reassigned tasks{isAdmin ? "" : " assigned to you"} right now.
+            No reassigned tasks{isAdmin ? "" : " involving you"} right now.
           </div>
         )}
         {sorted.map(({ t, hops }) => {
@@ -41,6 +47,7 @@ export function ReassignedTasks({ data, isAdmin, meId, openDetail }: ReassignedT
           const pm = PRIORITY_META[t.priority || "medium"];
           const agentName = data.agents.find((a) => a.id === t.agentId)?.name || "Unassigned";
           const latest = hops[hops.length - 1];
+          const isMine = t.agentId === meId;
           return (
             <div key={t.id} style={{ ...card, padding: 13, opacity: DEAD(t.status) ? 0.65 : 1 }}>
               <div className="flex items-center gap-2 flex-wrap">
@@ -49,6 +56,9 @@ export function ReassignedTasks({ data, isAdmin, meId, openDetail }: ReassignedT
                 <Chip color={pm.c} soft={pm.soft}>{pm.txt}</Chip>
                 <Chip color={m.c} soft={m.soft}>{m.txt}</Chip>
                 <span style={{ fontSize: 11, color: C.sub, textTransform: "capitalize" }}>{t._col}</span>
+                {!isAdmin && (isMine
+                  ? <Chip color={C.teal} soft={C.tealSoft}>With you now</Chip>
+                  : <Chip color={C.sub} soft={C.paper}>You handed this off</Chip>)}
               </div>
               <div className="flex items-center gap-1.5 mt-1.5" style={{ fontSize: 12.5, color: C.sub }}>
                 <ArrowRightLeft size={12} /> {latest.text} · {relTime(latest.ts)}

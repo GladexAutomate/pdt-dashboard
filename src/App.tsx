@@ -6,10 +6,10 @@ import {
 import { C } from "./lib/theme";
 import { TRACKERS, DONEISH, H, STATUS_META } from "./lib/constants";
 import { flattenRecords } from "./lib/helpers";
-import { fetchAppData, insertRecord, updateRecordRow, deleteRecordRow, insertLog, upsertReport, setKpiProgressRow, insertKpiDefRow, updateKpiDefRow, deleteKpiDefRow, subscribeToChanges, createAgent, updateAgentRow, deleteAgentRow, updateAdminRow, insertCategoryRow, updateCategoryRow, deleteCategoryRow, setAgentAdmin, setAgentActive } from "./lib/api";
+import { fetchAppData, insertRecord, updateRecordRow, deleteRecordRow, insertLog, upsertReport, setKpiProgressRow, insertKpiDefRow, updateKpiDefRow, deleteKpiDefRow, subscribeToChanges, createAgent, updateAgentRow, deleteAgentRow, updateAdminRow, insertCategoryRow, updateCategoryRow, deleteCategoryRow, setAgentAdmin, setAgentActive, appendComment, appendActivity, appendProof, appendLink } from "./lib/api";
 import type {
   AppData, TaskRecord, Status, Team, ColKey, LogEntry, ReportState, Session,
-  LoginResult, DetailTarget, Agent, ActivityEntry, CommentEntry, KpiDef, Category, Priority
+  LoginResult, DetailTarget, Agent, ActivityEntry, CommentEntry, KpiDef, Category, Priority, ProofItem, LinkItem
 } from "./lib/types";
 import { Login } from "./components/Login";
 import { Shell } from "./components/Shell";
@@ -110,7 +110,7 @@ export default function App() {
     const full: TaskRecord = {
       id, agentId: null, title: "", status: "pending", startedAt: null, completedAt: null, itemsTotal: 0, itemsError: 0, startDate: null, dueDate: null,
       requirements: "", remarks: "", description: "", links: [], proof: [], proofCount: 0, priority: "medium", progress: 0,
-      comments: [], activity: [], category: "", department: "", destination: "", team: "",
+      comments: [], activity: [], collaboratorIds: [], category: "", department: "", destination: "", team: "",
       assignedBy: actor().name, completedBy: null, updatedAt: now, updatedBy: actor().name, ...r
     };
     persistCol(col, (list) => [...list, full]);
@@ -133,7 +133,7 @@ export default function App() {
   const setRecStatus = (col: ColKey, id: string, status: Status) => {
     const t = (data?.[col] || []).find((x) => x.id === id);
     if (!t) return;
-    const patch: Partial<TaskRecord> = { status, updatedAt: Date.now(), updatedBy: actor().name };
+    const patch: Partial<TaskRecord> = { status };
     if (DONEISH(status)) {
       patch.completedAt = t.completedAt ?? Date.now();
       patch.progress = 100;
@@ -145,11 +145,13 @@ export default function App() {
     }
     if (status === "in_progress" && !t.startedAt) patch.startedAt = Date.now();
     const entry: ActivityEntry = { id: actId(), type: "status", text: `Status → ${STATUS_META[status].txt}`, by: actor().name, role: actor().role, ts: Date.now(), status };
-    patch.activity = [...(t.activity || []), entry];
+    const fullPatch: Partial<TaskRecord> = { ...patch, activity: [...(t.activity || []), entry], updatedAt: Date.now(), updatedBy: actor().name };
 
-    persistCol(col, (l) => l.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+    persistCol(col, (l) => l.map((x) => (x.id === id ? { ...x, ...fullPatch } : x)));
     runMutation(
-      () => updateRecordRow(id, patch),
+      // scalar fields + the new activity entry are written separately so the
+      // activity array append is always atomic server-side (see append_activity).
+      () => updateRecordRow(id, patch).then(() => appendActivity(id, entry, actor().name)),
       () => persistCol(col, (l) => l.map((x) => (x.id === id ? t : x))),
       () => log({ userId: actor().id, name: actor().name, role: actor().role, type: "status", detail: `Set "${t.title}" → ${STATUS_META[status].txt}` })
     );
@@ -160,10 +162,11 @@ export default function App() {
     const from = data?.agents.find((a) => a.id === t.agentId)?.name || "Unassigned";
     const toA = data?.agents.find((a) => a.id === newAgentId);
     const entry: ActivityEntry = { id: actId(), type: "reassign", text: `Reassigned ${from} → ${toA?.name || "—"}`, by: actor().name, role: actor().role, ts: Date.now() };
-    const patch: Partial<TaskRecord> = { agentId: newAgentId, team: toA?.team || t.team, activity: [...(t.activity || []), entry], updatedAt: Date.now(), updatedBy: actor().name };
-    persistCol(col, (l) => l.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+    const patch: Partial<TaskRecord> = { agentId: newAgentId, team: toA?.team || t.team };
+    const fullPatch: Partial<TaskRecord> = { ...patch, activity: [...(t.activity || []), entry], updatedAt: Date.now(), updatedBy: actor().name };
+    persistCol(col, (l) => l.map((x) => (x.id === id ? { ...x, ...fullPatch } : x)));
     runMutation(
-      () => updateRecordRow(id, patch),
+      () => updateRecordRow(id, patch).then(() => appendActivity(id, entry, actor().name)),
       () => persistCol(col, (l) => l.map((x) => (x.id === id ? t : x))),
       () => log({ userId: actor().id, name: actor().name, role: actor().role, type: "reassign", detail: `Reassigned "${t.title}" → ${toA?.name || "—"}` })
     );
@@ -176,7 +179,7 @@ export default function App() {
     const patch: Partial<TaskRecord> = { comments: [...(t.comments || []), comment], updatedAt: Date.now(), updatedBy: actor().name };
     persistCol(col, (l) => l.map((x) => (x.id === id ? { ...x, ...patch } : x)));
     runMutation(
-      () => updateRecordRow(id, patch),
+      () => appendComment(id, comment, actor().name),
       () => persistCol(col, (l) => l.map((x) => (x.id === id ? t : x))),
       () => log({ userId: actor().id, name: actor().name, role: actor().role, type: "comment", detail: `Commented on "${t.title}"` })
     );
@@ -188,8 +191,28 @@ export default function App() {
     const patch: Partial<TaskRecord> = { activity: [...(t.activity || []), entry], updatedAt: Date.now(), updatedBy: actor().name };
     persistCol(col, (l) => l.map((r) => (r.id === id ? { ...r, ...patch } : r)));
     runMutation(
-      () => updateRecordRow(id, patch),
+      () => appendActivity(id, entry, actor().name),
       () => persistCol(col, (l) => l.map((r) => (r.id === id ? t : r)))
+    );
+  };
+  const addRecProof = (col: ColKey, id: string, item: ProofItem) => {
+    const t = (data?.[col] || []).find((x) => x.id === id);
+    if (!t) return;
+    const patch: Partial<TaskRecord> = { proof: [...(t.proof || []), item], proofCount: (t.proof || []).length + 1, updatedAt: Date.now(), updatedBy: actor().name };
+    persistCol(col, (l) => l.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+    runMutation(
+      () => appendProof(id, item, actor().name),
+      () => persistCol(col, (l) => l.map((x) => (x.id === id ? t : x)))
+    );
+  };
+  const addRecLink = (col: ColKey, id: string, link: LinkItem) => {
+    const t = (data?.[col] || []).find((x) => x.id === id);
+    if (!t) return;
+    const patch: Partial<TaskRecord> = { links: [...(t.links || []), link], updatedAt: Date.now(), updatedBy: actor().name };
+    persistCol(col, (l) => l.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+    runMutation(
+      () => appendLink(id, link, actor().name),
+      () => persistCol(col, (l) => l.map((x) => (x.id === id ? t : x)))
     );
   };
   const createFollowUpTask = (col: ColKey, originalId: string, input: { title: string; category: string; priority: Priority; agentId: string; dueDate: number | null }) => {
@@ -494,13 +517,15 @@ export default function App() {
         <TaskDetail
           task={detailRec} data={data} actor={actor()}
           isAdmin={session.role === "admin"}
-          canEdit={session.role === "admin" || detailRec.agentId === session.agentId}
+          canEdit={session.role === "admin" || detailRec.agentId === session.agentId || (!!session.agentId && (detailRec.collaboratorIds || []).includes(session.agentId))}
           onClose={() => setDetail(null)}
           updateTask={(id, patch) => updateRec(detail.col, id, patch)}
           setStatus={(id, s) => setRecStatus(detail.col, id, s)}
           reassignTask={(id, n) => reassignRec(detail.col, id, n)}
           addComment={(id, text) => addRecComment(detail.col, id, text)}
           pushActivity={(id, ty, tx) => pushRecActivity(detail.col, id, ty, tx)}
+          appendProof={(id, item) => addRecProof(detail.col, id, item)}
+          appendLink={(id, link) => addRecLink(detail.col, id, link)}
           deleteTask={(id) => { deleteRec(detail.col, id); setDetail(null); }}
           createFollowUp={(input) => createFollowUpTask(detail.col, detailRec.id, input)} />
       )}

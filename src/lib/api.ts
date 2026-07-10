@@ -40,6 +40,7 @@ interface RecordRow {
   proof_count: number | null;
   comments: CommentEntry[] | null;
   activity: ActivityEntry[] | null;
+  collaborator_ids: string[] | null;
   assigned_by: string | null;
   completed_by: string | null;
   updated_at: string | null;
@@ -75,6 +76,7 @@ function rowToRecord(row: RecordRow): TaskRecord {
     proofCount: row.proof_count ?? 0,
     comments: row.comments ?? [],
     activity: row.activity ?? [],
+    collaboratorIds: row.collaborator_ids ?? [],
     assignedBy: row.assigned_by ?? undefined,
     completedBy: row.completed_by,
     updatedAt: toMs(row.updated_at) ?? undefined,
@@ -111,6 +113,7 @@ function recordPatchToRow(patch: Partial<TaskRecord>): Record<string, unknown> {
   if ("proofCount" in patch) row.proof_count = patch.proofCount;
   if ("comments" in patch) row.comments = patch.comments;
   if ("activity" in patch) row.activity = patch.activity;
+  if ("collaboratorIds" in patch) row.collaborator_ids = patch.collaboratorIds;
   if ("assignedBy" in patch) row.assigned_by = patch.assignedBy;
   if ("completedBy" in patch) row.completed_by = patch.completedBy;
   if ("updatedAt" in patch) row.updated_at = toIso(patch.updatedAt);
@@ -174,6 +177,26 @@ export async function updateRecordRow(id: string, patch: Partial<TaskRecord>): P
 }
 export async function deleteRecordRow(id: string): Promise<void> {
   const { error } = await supabase.from("records").delete().eq("id", id);
+  if (error) throw error;
+}
+
+/* ---- atomic append-only writes: two people on the same task (see
+   collaborator_ids) can each add a comment/activity/proof/link at the same
+   moment without one overwriting the other's whole-array replace. ---- */
+export async function appendComment(id: string, comment: CommentEntry, updatedBy: string): Promise<void> {
+  const { error } = await supabase.rpc("append_comment", { p_record_id: id, p_comment: comment, p_updated_by: updatedBy });
+  if (error) throw error;
+}
+export async function appendActivity(id: string, entry: ActivityEntry, updatedBy: string): Promise<void> {
+  const { error } = await supabase.rpc("append_activity", { p_record_id: id, p_entry: entry, p_updated_by: updatedBy });
+  if (error) throw error;
+}
+export async function appendProof(id: string, item: ProofItem, updatedBy: string): Promise<void> {
+  const { error } = await supabase.rpc("append_proof", { p_record_id: id, p_item: item, p_updated_by: updatedBy });
+  if (error) throw error;
+}
+export async function appendLink(id: string, link: LinkItem, updatedBy: string): Promise<void> {
+  const { error } = await supabase.rpc("append_link", { p_record_id: id, p_link: link, p_updated_by: updatedBy });
   if (error) throw error;
 }
 

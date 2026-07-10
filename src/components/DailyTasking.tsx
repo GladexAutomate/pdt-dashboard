@@ -38,7 +38,10 @@ export function DailyTasking({ data, isAdmin, meId, addRec, setRecStatus, delete
   // stays with whoever finished it, so it still shows on their EOD even
   // after the task gets reassigned to someone else.
   const dailyFor = (agent: Agent) => (data.daily || []).filter((d) =>
-    toDateInput(d.dueDate) === date && (DONEISH(d.status) && d.completedBy ? d.completedBy === agent.name : d.agentId === agent.id)
+    toDateInput(d.dueDate) === date && (
+      (d.collaboratorIds || []).includes(agent.id) ||
+      (DONEISH(d.status) && d.completedBy ? d.completedBy === agent.name : d.agentId === agent.id)
+    )
   );
 
   const exportReport = () => {
@@ -260,7 +263,10 @@ function TeamDailyReport({ data, date }: { data: AppData; date: string }) {
   const teams = (["Domestic", "International"] as Team[]).map((team) => {
     const members = data.agents.filter((a) => a.team === team).map((a) => {
       const ts = (data.daily || []).filter((d) =>
-        toDateInput(d.dueDate) === date && (DONEISH(d.status) && d.completedBy ? d.completedBy === a.name : d.agentId === a.id)
+        toDateInput(d.dueDate) === date && (
+          (d.collaboratorIds || []).includes(a.id) ||
+          (DONEISH(d.status) && d.completedBy ? d.completedBy === a.name : d.agentId === a.id)
+        )
       );
       return { name: a.name, titles: ts.filter((d) => DONEISH(d.status)).map((d) => d.title) };
     });

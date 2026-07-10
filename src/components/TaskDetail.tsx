@@ -2,13 +2,13 @@ import { useState, useEffect } from "react";
 import {
   X, Sparkles, MapPin, Link2, Paperclip, MessageSquare, FileText, Target,
   ExternalLink, Plus, Send, Trash2, CalendarCheck, Image as ImageIcon,
-  ArrowRightLeft, Activity, History, GitBranch
+  ArrowRightLeft, Activity, History, GitBranch, Users
 } from "lucide-react";
 import { C, inputStyle, dateInputStyle, lbl, selStyleBtn, catC } from "../lib/theme";
 import { STATUS_META, PRIORITY_META, PRIORITIES, DONEISH } from "../lib/constants";
 import { relTime, fmtDay, toDateInput, fromDateInput, dueMeta, normUrl, resizeImage, readFileDataUrl } from "../lib/helpers";
 import { Chip, Btn, ProgressBar, StatusSelect, PrioritySelect, AssigneeSelect, DetailSection, EditableArea } from "./ui";
-import type { TaskRecord, AppData, Actor, Status, Priority, ProofItem, CommentEntry, ActivityEntry } from "../lib/types";
+import type { TaskRecord, AppData, Actor, Status, Priority, ProofItem, CommentEntry, ActivityEntry, LinkItem } from "../lib/types";
 
 type TimelineItem = (CommentEntry & { kind: "comment" }) | (ActivityEntry & { kind: "event" });
 
@@ -32,12 +32,14 @@ interface TaskDetailProps {
   reassignTask: (id: string, agentId: string) => void;
   addComment: (id: string, text: string) => void;
   pushActivity: (id: string, type: string, text: string) => void;
+  appendProof: (id: string, item: ProofItem) => void;
+  appendLink: (id: string, link: LinkItem) => void;
   deleteTask: (id: string) => void;
   createFollowUp: (input: FollowUpInput) => void;
 }
 
 /* ---------------- Task detail drawer ---------------- */
-export function TaskDetail({ task, data, actor, isAdmin, canEdit, onClose, updateTask, setStatus, reassignTask, addComment, pushActivity, deleteTask, createFollowUp }: TaskDetailProps) {
+export function TaskDetail({ task, data, actor, isAdmin, canEdit, onClose, updateTask, setStatus, reassignTask, addComment, pushActivity, appendProof, appendLink, deleteTask, createFollowUp }: TaskDetailProps) {
   const t = task;
   const [proof, setProof] = useState<ProofItem[]>(task.proof || []);
   const [err, setErr] = useState("");
@@ -48,16 +50,21 @@ export function TaskDetail({ task, data, actor, isAdmin, canEdit, onClose, updat
   const [proofLabel, setProofLabel] = useState("");
   const [proofUrl, setProofUrl] = useState("");
   const [showFollowUp, setShowFollowUp] = useState(false);
+  const [addCollabId, setAddCollabId] = useState("");
 
   useEffect(() => { setProof(task.proof || []); }, [task.id]);
 
+  // adds go through the atomic append RPC (appendProof) so two collaborators
+  // uploading proof at the same instant both land; removals stay a plain
+  // whole-array replace since that race is rarer and lower-stakes.
   const saveProof = (next: ProofItem[]) => { setProof(next); updateTask(t.id, { proof: next, proofCount: next.length }); };
+  const addProofItem = (att: ProofItem) => { setProof([...proof, att]); appendProof(t.id, att); };
   const addImage = async (file: File) => {
     setErr(""); setBusy(true);
     try {
       const dataUrl = await resizeImage(file);
       const att: ProofItem = { id: "pf" + Date.now(), kind: "image", name: file.name, dataUrl, ts: Date.now(), by: actor.name };
-      saveProof([...proof, att]);
+      addProofItem(att);
       pushActivity(t.id, "proof", `Uploaded screenshot: ${file.name}`);
     } catch (e) { setErr("Could not process that image."); }
     setBusy(false);
@@ -70,7 +77,7 @@ export function TaskDetail({ task, data, actor, isAdmin, canEdit, onClose, updat
     try {
       const dataUrl = await readFileDataUrl(file);
       const att: ProofItem = { id: "pf" + Date.now(), kind: "file", name: file.name, dataUrl, ts: Date.now(), by: actor.name };
-      saveProof([...proof, att]);
+      addProofItem(att);
       pushActivity(t.id, "proof", `Uploaded file: ${file.name}`);
     } catch (e) { setErr("Could not read that file."); }
     setBusy(false);
@@ -78,7 +85,7 @@ export function TaskDetail({ task, data, actor, isAdmin, canEdit, onClose, updat
   const addProofLink = () => {
     if (!proofUrl.trim()) return;
     const att: ProofItem = { id: "pf" + Date.now(), kind: "link", name: proofLabel.trim() || proofUrl.trim(), url: normUrl(proofUrl), ts: Date.now(), by: actor.name };
-    saveProof([...proof, att]); pushActivity(t.id, "proof", `Linked proof: ${att.name}`);
+    addProofItem(att); pushActivity(t.id, "proof", `Linked proof: ${att.name}`);
     setProofLabel(""); setProofUrl("");
   };
   const removeProof = (id: string) => { const a = proof.find((p) => p.id === id); saveProof(proof.filter((p) => p.id !== id)); if (a) pushActivity(t.id, "proof", `Removed proof: ${a.name}`); };
@@ -86,10 +93,24 @@ export function TaskDetail({ task, data, actor, isAdmin, canEdit, onClose, updat
   const addLink = () => {
     if (!linkUrl.trim()) return;
     const link = { id: "lk" + Date.now(), label: linkLabel.trim() || linkUrl.trim(), url: normUrl(linkUrl) };
-    updateTask(t.id, { links: [...(t.links || []), link] }); pushActivity(t.id, "link", `Added link: ${link.label}`);
+    appendLink(t.id, link); pushActivity(t.id, "link", `Added link: ${link.label}`);
     setLinkLabel(""); setLinkUrl("");
   };
   const removeLink = (id: string) => updateTask(t.id, { links: (t.links || []).filter((l) => l.id !== id) });
+
+  const availableCollabs = data.agents.filter((a) => a.isActive && a.id !== t.agentId && !(t.collaboratorIds || []).includes(a.id));
+  const addCollaborator = () => {
+    if (!addCollabId) return;
+    const name = data.agents.find((a) => a.id === addCollabId)?.name || "someone";
+    updateTask(t.id, { collaboratorIds: [...(t.collaboratorIds || []), addCollabId] });
+    pushActivity(t.id, "edit", `Added ${name} as a collaborator`);
+    setAddCollabId("");
+  };
+  const removeCollaborator = (id: string) => {
+    const name = data.agents.find((a) => a.id === id)?.name || "someone";
+    updateTask(t.id, { collaboratorIds: (t.collaboratorIds || []).filter((cid) => cid !== id) });
+    pushActivity(t.id, "edit", `Removed ${name} as a collaborator`);
+  };
 
   const timeline: TimelineItem[] = [
     ...(t.comments || []).map((c) => ({ ...c, kind: "comment" as const })),
@@ -145,6 +166,34 @@ export function TaskDetail({ task, data, actor, isAdmin, canEdit, onClose, updat
             <div><div style={lbl}>Due date</div><input disabled={ro} type="date" value={toDateInput(t.dueDate)} onChange={(e) => updateTask(t.id, { dueDate: fromDateInput(e.target.value) })} style={dateInputStyle} />{dm && dm.label && <span style={{ fontSize: 11, color: dm.c, fontWeight: 600, marginLeft: 6 }}>{dm.label}</span>}</div>
             <div><div style={lbl}>Completed</div><div className="flex items-center gap-1" style={{ fontSize: 13, color: DONEISH(t.status) ? C.teal : C.sub, fontWeight: 600, paddingTop: 5 }}><CalendarCheck size={14} /> {DONEISH(t.status) && t.completedAt ? fmtDay(t.completedAt) : "—"}</div></div>
           </div>
+
+          {/* collaborators */}
+          <DetailSection icon={<Users size={15} color={C.ink} />} title={`Collaborators${(t.collaboratorIds || []).length ? ` (${(t.collaboratorIds || []).length})` : ""}`}>
+            <div style={{ fontSize: 12, color: C.sub, marginBottom: 8 }}>
+              Add someone else who's genuinely working this ticket alongside the assignee — they get full edit access to this exact task. For separate work that should be tracked under someone else's own name, use "Create follow-up task" below instead.
+            </div>
+            <div className="flex gap-2 flex-wrap mb-2">
+              {(t.collaboratorIds || []).length === 0 && <div style={{ fontSize: 12.5, color: C.sub }}>No collaborators yet.</div>}
+              {(t.collaboratorIds || []).map((id) => {
+                const a = data.agents.find((x) => x.id === id);
+                return (
+                  <div key={id} className="flex items-center gap-1.5" style={{ background: C.paper, borderRadius: 999, padding: "5px 6px 5px 11px", fontSize: 12.5, fontWeight: 600 }}>
+                    {a?.name || "Unknown"}
+                    {canEdit && <button onClick={() => removeCollaborator(id)} style={{ background: "transparent", border: "none", cursor: "pointer", color: C.sub, display: "flex", padding: 2 }}><X size={12} /></button>}
+                  </div>
+                );
+              })}
+            </div>
+            {canEdit && availableCollabs.length > 0 && (
+              <div className="flex gap-2 flex-wrap">
+                <select value={addCollabId} onChange={(e) => setAddCollabId(e.target.value)} style={{ ...inputStyle, flex: "1 1 180px" }}>
+                  <option value="">Add collaborator…</option>
+                  {availableCollabs.map((a) => <option key={a.id} value={a.id}>{a.name} · {a.team}</option>)}
+                </select>
+                <Btn sm kind="ghost" icon={<Plus size={13} />} disabled={!addCollabId} onClick={addCollaborator}>Add</Btn>
+              </div>
+            )}
+          </DetailSection>
 
           {/* description */}
           <DetailSection icon={<FileText size={15} color={C.ink} />} title="Description & work done">
