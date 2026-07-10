@@ -118,7 +118,7 @@ export function TrackerView({ col, config, data, isAdmin, meId, addRec, updateRe
 
       <TrackerSummary records={records} />
 
-      {showAdd && <AddRecordForm col={col} config={config} agents={data.agents} categories={data.categories} meId={meId} isAdmin={isAdmin}
+      {showAdd && <AddRecordForm col={col} config={config} agents={data.agents.filter((a) => a.isActive)} categories={data.categories} meId={meId} isAdmin={isAdmin}
         onAdd={(r) => { addRec(col, r); setShowAdd(false); }} onCancel={() => setShowAdd(false)} />}
 
       {/* search + filters */}

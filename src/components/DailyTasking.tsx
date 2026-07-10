@@ -70,7 +70,7 @@ export function DailyTasking({ data, isAdmin, meId, addRec, setRecStatus, delete
       </div>
 
       {showAssign && (isAdmin || meId) && (
-        <AssignDailyForm agents={data.agents} categories={data.categories} date={date} fixedAgentId={isAdmin ? undefined : meId}
+        <AssignDailyForm agents={data.agents.filter((a) => a.isActive)} categories={data.categories} date={date} fixedAgentId={isAdmin ? undefined : meId}
           onAssign={(r) => { addRec(COL, r); }}
           onClose={() => setShowAssign(false)} />
       )}

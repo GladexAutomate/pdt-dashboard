@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
-import { Plus, Trash2, Pencil, Eye, EyeOff, Check, X, UserCog, ShieldPlus, ShieldMinus } from "lucide-react";
+import { Plus, Trash2, Pencil, Eye, EyeOff, Check, X, UserCog, ShieldPlus, ShieldMinus, UserX, UserCheck } from "lucide-react";
 import { C, card, inputStyle, teamColor } from "../lib/theme";
 import { Avatar, Btn, Field, Chip } from "./ui";
 import type { AppData, Agent, Team } from "../lib/types";
@@ -25,6 +25,7 @@ interface UserManagementProps {
   updateAgent: (id: string, patch: UpdateAgentInput) => Promise<string | null>;
   removeAgent: (id: string) => Promise<string | null>;
   setAgentAdmin: (id: string, isAdmin: boolean) => Promise<string | null>;
+  setAgentActive: (id: string, isActive: boolean) => Promise<string | null>;
 }
 
 const TEAMS: Team[] = ["Domestic", "International"];
@@ -121,8 +122,49 @@ function AdminAccessModal({ agent, grant, onConfirm, onClose }: { agent: Agent; 
   );
 }
 
-function UserRow({ agent, onUpdate, onRemove, onSetAdmin }: {
-  agent: Agent; onUpdate: (id: string, patch: UpdateAgentInput) => Promise<string | null>; onRemove: (id: string) => Promise<string | null>; onSetAdmin: (id: string, isAdmin: boolean) => Promise<string | null>;
+function ActiveStatusModal({ agent, reactivate, onConfirm, onClose }: { agent: Agent; reactivate: boolean; onConfirm: () => Promise<string | null>; onClose: () => void }) {
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const confirm = async () => {
+    setErr(""); setBusy(true);
+    const result = await onConfirm();
+    setBusy(false);
+    if (result) { setErr(result); return; }
+    onClose();
+  };
+
+  return createPortal(
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(20,28,46,0.5)", zIndex: 1000, display: "flex", justifyContent: "center", alignItems: "flex-start", padding: 16, overflowY: "auto" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 420, marginTop: 24, marginBottom: 24, boxShadow: "0 24px 60px rgba(0,0,0,0.25)" }}>
+        <div className="flex items-start justify-between gap-3" style={{ padding: 18, borderBottom: `1px solid ${C.line}` }}>
+          <div className="flex items-center gap-2">
+            {reactivate ? <UserCheck size={17} color={C.teal} /> : <UserX size={17} color={C.rose} />}
+            <span style={{ fontWeight: 700, fontSize: 15.5 }}>{reactivate ? "Reactivate account" : "Mark as resigned"}</span>
+          </div>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", cursor: "pointer", color: C.sub }}><X size={18} /></button>
+        </div>
+        <div style={{ padding: 18 }}>
+          <div style={{ fontSize: 13.5, lineHeight: 1.5, color: C.text }}>
+            {reactivate
+              ? <>Reactivate <b>{agent.name}</b>? They'll be able to log in again and reappear in assignment pickers, using their existing username and password.</>
+              : <>Mark <b>{agent.name}</b> as resigned? They won't be able to log in and will no longer show up when assigning new work, but their team, username, and full task history — including everything already credited to them in stats and reports — stay exactly as they are. This is different from "Remove," which deletes their account entirely.</>}
+          </div>
+          {err && <div style={{ color: C.rose, fontSize: 12.5, marginTop: 10 }}>{err}</div>}
+          <div className="flex gap-2 mt-4">
+            <Btn kind={reactivate ? "teal" : "danger"} sm disabled={busy} onClick={confirm}>{busy ? "Saving…" : reactivate ? "Reactivate" : "Mark as resigned"}</Btn>
+            <Btn kind="ghost" sm onClick={onClose}>Cancel</Btn>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+function UserRow({ agent, onUpdate, onRemove, onSetAdmin, onSetActive }: {
+  agent: Agent; onUpdate: (id: string, patch: UpdateAgentInput) => Promise<string | null>; onRemove: (id: string) => Promise<string | null>;
+  onSetAdmin: (id: string, isAdmin: boolean) => Promise<string | null>; onSetActive: (id: string, isActive: boolean) => Promise<string | null>;
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(agent.name);
@@ -132,6 +174,7 @@ function UserRow({ agent, onUpdate, onRemove, onSetAdmin }: {
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [showAdminModal, setShowAdminModal] = useState(false);
+  const [showActiveModal, setShowActiveModal] = useState(false);
 
   const startEdit = () => { setName(agent.name); setTeam(agent.team); setUsername(agent.username); setPassword(""); setErr(""); setEditing(true); };
   const save = async () => {
@@ -144,7 +187,7 @@ function UserRow({ agent, onUpdate, onRemove, onSetAdmin }: {
     setEditing(false);
   };
   const remove = () => {
-    if (!window.confirm(`Remove ${agent.name}? Their past tasks and history stay, but they won't be able to log in anymore.`)) return;
+    if (!window.confirm(`Permanently delete ${agent.name}? This can't be undone — their name will still show on past tasks, but they'll drop out of every roster, roll-up, and report. For someone who resigned, use "Mark as resigned" instead so their history stays trackable.`)) return;
     onRemove(agent.id);
   };
 
@@ -171,11 +214,12 @@ function UserRow({ agent, onUpdate, onRemove, onSetAdmin }: {
   }
 
   return (
-    <tr style={{ borderBottom: `1px solid ${C.line}` }}>
+    <tr style={{ borderBottom: `1px solid ${C.line}`, opacity: agent.isActive ? 1 : 0.6 }}>
       <td style={{ padding: "10px" }}>
         <div className="flex items-center gap-2">
           <Avatar name={agent.name} team={agent.team} size={28} /><span style={{ fontWeight: 600, fontSize: 13.5 }}>{agent.name}</span>
           {agent.isAdmin && <Chip color={C.gold} soft="#FBF3DD">Admin</Chip>}
+          {!agent.isActive && <Chip color={C.rose} soft="#FBE6EA">Resigned</Chip>}
         </div>
       </td>
       <td style={{ padding: "10px" }}><Chip color={teamColor(agent.team)} soft={agent.team === "Domestic" ? "#FBEAE4" : "#E7EDFB"}>{agent.team}</Chip></td>
@@ -187,17 +231,23 @@ function UserRow({ agent, onUpdate, onRemove, onSetAdmin }: {
           {agent.isAdmin
             ? <button onClick={() => setShowAdminModal(true)} title="Revoke admin access" style={{ color: C.rose, background: "transparent", border: "none", cursor: "pointer" }}><ShieldMinus size={15} /></button>
             : <button onClick={() => setShowAdminModal(true)} title="Grant admin access" style={{ color: C.gold, background: "transparent", border: "none", cursor: "pointer" }}><ShieldPlus size={15} /></button>}
-          <button onClick={remove} title="Remove" style={{ color: C.rose, background: "transparent", border: "none", cursor: "pointer" }}><Trash2 size={15} /></button>
+          {agent.isActive
+            ? <button onClick={() => setShowActiveModal(true)} title="Mark as resigned" style={{ color: C.rose, background: "transparent", border: "none", cursor: "pointer" }}><UserX size={15} /></button>
+            : <button onClick={() => setShowActiveModal(true)} title="Reactivate" style={{ color: C.teal, background: "transparent", border: "none", cursor: "pointer" }}><UserCheck size={15} /></button>}
+          <button onClick={remove} title="Delete permanently" style={{ color: C.rose, opacity: 0.7, background: "transparent", border: "none", cursor: "pointer" }}><Trash2 size={15} /></button>
         </div>
       </td>
       {showAdminModal && (
         <AdminAccessModal agent={agent} grant={!agent.isAdmin} onConfirm={() => onSetAdmin(agent.id, !agent.isAdmin)} onClose={() => setShowAdminModal(false)} />
       )}
+      {showActiveModal && (
+        <ActiveStatusModal agent={agent} reactivate={!agent.isActive} onConfirm={() => onSetActive(agent.id, !agent.isActive)} onClose={() => setShowActiveModal(false)} />
+      )}
     </tr>
   );
 }
 
-export function UserManagement({ data, addAgent, updateAgent, removeAgent, setAgentAdmin }: UserManagementProps) {
+export function UserManagement({ data, addAgent, updateAgent, removeAgent, setAgentAdmin, setAgentActive }: UserManagementProps) {
   const [showAdd, setShowAdd] = useState(false);
   const sorted = [...data.agents].sort((a, b) => (a.team === b.team ? a.name.localeCompare(b.name) : a.team.localeCompare(b.team)));
 
@@ -225,7 +275,7 @@ export function UserManagement({ data, addAgent, updateAgent, removeAgent, setAg
             </thead>
             <tbody>
               {sorted.length === 0 && <tr><td colSpan={5} style={{ padding: 18, color: C.sub, fontSize: 13 }}>No users yet.</td></tr>}
-              {sorted.map((a) => <UserRow key={a.id} agent={a} onUpdate={updateAgent} onRemove={removeAgent} onSetAdmin={setAgentAdmin} />)}
+              {sorted.map((a) => <UserRow key={a.id} agent={a} onUpdate={updateAgent} onRemove={removeAgent} onSetAdmin={setAgentAdmin} onSetActive={setAgentActive} />)}
             </tbody>
           </table>
         </div>

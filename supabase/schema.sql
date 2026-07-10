@@ -9,14 +9,16 @@ set search_path = public, extensions;
 -- plaintext. It's only ever written/checked inside the security-definer
 -- functions below — the client never sees it (see agents_public view).
 create table if not exists agents (
-  id       text primary key,
-  name     text not null,
-  team     text not null check (team in ('Domestic', 'International')),
-  username text not null unique,
-  password text not null,
-  is_admin boolean not null default false
+  id        text primary key,
+  name      text not null,
+  team      text not null check (team in ('Domestic', 'International')),
+  username  text not null unique,
+  password  text not null,
+  is_admin  boolean not null default false,
+  is_active boolean not null default true
 );
 alter table agents add column if not exists is_admin boolean not null default false;
+alter table agents add column if not exists is_active boolean not null default true;
 
 -- ---------- admin account (kept separate from agents for the pure back-office
 --            supervisor identity that never does tasking — an agent can also
@@ -34,7 +36,7 @@ create table if not exists admins (
 -- this bypasses the RLS lockdown on `agents` below while never exposing
 -- password hashes.
 create or replace view agents_public as
-  select id, name, team, username, is_admin from agents;
+  select id, name, team, username, is_admin, is_active from agents;
 
 -- ---------- records: unifies tasks / premium / gladex / tariff / daily ----------
 -- "daily" tasks are ordinary records too (same title/category/priority/status
@@ -154,10 +156,13 @@ begin
     limit 1;
   if result is not null then return result; end if;
 
-  select jsonb_build_object('role', case when is_admin then 'admin' else 'agent' end, 'id', id, 'username', username, 'name', name, 'team', team)
+  select jsonb_build_object('role', case when is_admin then 'admin' else 'agent' end, 'id', id, 'username', username, 'name', name, 'team', team, 'is_active', is_active)
     into result from agents
     where username = lower(p_username) and password = crypt(p_password, password)
     limit 1;
+  if result is not null and (result->>'is_active')::boolean = false then
+    raise exception 'This account has been deactivated. Contact your admin.';
+  end if;
   return result;
 end;
 $$;
@@ -258,18 +263,36 @@ begin
 end;
 $$;
 
+-- "Resigned" is a soft delete: the agent row, team, username, and every task
+-- they ever touched stay exactly as they are (completedBy/assignedBy/activity
+-- keep crediting them by name, so Monthly Report and team rollups don't lose
+-- their history) — this flag only blocks login and hides them from
+-- new-assignment pickers going forward.
+create or replace function public.set_agent_active(p_id text, p_is_active boolean)
+returns void
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+begin
+  update agents set is_active = p_is_active where id = p_id;
+end;
+$$;
+
 revoke all on function public.login(text, text) from public;
 revoke all on function public.create_agent(text, text, text, text, text) from public;
 revoke all on function public.update_agent(text, text, text, text, text) from public;
 revoke all on function public.delete_agent(text) from public;
 revoke all on function public.update_admin(text, text, text, text, text) from public;
 revoke all on function public.set_agent_admin(text, boolean) from public;
+revoke all on function public.set_agent_active(text, boolean) from public;
 grant execute on function public.login(text, text) to anon, authenticated;
 grant execute on function public.create_agent(text, text, text, text, text) to anon, authenticated;
 grant execute on function public.update_agent(text, text, text, text, text) to anon, authenticated;
 grant execute on function public.delete_agent(text) to anon, authenticated;
 grant execute on function public.update_admin(text, text, text, text, text) to anon, authenticated;
 grant execute on function public.set_agent_admin(text, boolean) to anon, authenticated;
+grant execute on function public.set_agent_active(text, boolean) to anon, authenticated;
 
 -- ---------- Row Level Security ----------
 -- NOTE (security tradeoff, please read):

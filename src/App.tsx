@@ -6,7 +6,7 @@ import {
 import { C } from "./lib/theme";
 import { TRACKERS, DONEISH, H, STATUS_META } from "./lib/constants";
 import { flattenRecords } from "./lib/helpers";
-import { fetchAppData, insertRecord, updateRecordRow, deleteRecordRow, insertLog, upsertReport, setKpiProgressRow, insertKpiDefRow, updateKpiDefRow, deleteKpiDefRow, subscribeToChanges, createAgent, updateAgentRow, deleteAgentRow, updateAdminRow, insertCategoryRow, updateCategoryRow, deleteCategoryRow, setAgentAdmin } from "./lib/api";
+import { fetchAppData, insertRecord, updateRecordRow, deleteRecordRow, insertLog, upsertReport, setKpiProgressRow, insertKpiDefRow, updateKpiDefRow, deleteKpiDefRow, subscribeToChanges, createAgent, updateAgentRow, deleteAgentRow, updateAdminRow, insertCategoryRow, updateCategoryRow, deleteCategoryRow, setAgentAdmin, setAgentActive } from "./lib/api";
 import type {
   AppData, TaskRecord, Status, Team, ColKey, LogEntry, ReportState, Session,
   LoginResult, DetailTarget, Agent, ActivityEntry, CommentEntry, KpiDef, Category, Priority
@@ -268,7 +268,7 @@ export default function App() {
     } catch (e) {
       return e instanceof Error ? e.message : "Failed to add user.";
     }
-    const agent: Agent = { id, name: input.name.trim(), team: input.team, username, isAdmin: false };
+    const agent: Agent = { id, name: input.name.trim(), team: input.team, username, isAdmin: false, isActive: true };
     persist((d) => ({ ...d, agents: [...d.agents, agent] }));
     log({ userId: actor().id, name: actor().name, role: actor().role, type: "create", detail: `Added user "${agent.name}"` });
     return null;
@@ -335,6 +335,17 @@ export default function App() {
     }
     persist((d) => ({ ...d, agents: d.agents.map((x) => (x.id === id ? { ...x, isAdmin } : x)) }));
     log({ userId: actor().id, name: actor().name, role: actor().role, type: "status", detail: `${isAdmin ? "Granted" : "Revoked"} admin access for "${a?.name}"` });
+    return null;
+  };
+  const setAgentActiveFlag = async (id: string, isActive: boolean): Promise<string | null> => {
+    const a = data?.agents.find((x) => x.id === id);
+    try {
+      await setAgentActive(id, isActive);
+    } catch (e) {
+      return e instanceof Error ? e.message : "Failed to update account status.";
+    }
+    persist((d) => ({ ...d, agents: d.agents.map((x) => (x.id === id ? { ...x, isActive } : x)) }));
+    log({ userId: actor().id, name: actor().name, role: actor().role, type: "status", detail: `${isActive ? "Reactivated" : "Marked as resigned"} "${a?.name}"` });
     return null;
   };
 
@@ -447,7 +458,7 @@ export default function App() {
           {adminTab === "home" && <AdminHome data={data} go={(team) => { setAdminTab("teams"); setSelTeam(team as Team); }} />}
             {adminTab === "daily" && <DailyTasking {...trackerProps("daily")} isAdmin />}
           {adminTab === "reassigned" && <ReassignedTasks data={data} isAdmin meId={session?.agentId} openDetail={(col, id) => setDetail({ col, id })} />}
-          {adminTab === "users" && <UserManagement data={data} addAgent={addAgent} updateAgent={updateAgent} removeAgent={removeAgent} setAgentAdmin={setAgentAdminFlag} />}
+          {adminTab === "users" && <UserManagement data={data} addAgent={addAgent} updateAgent={updateAgent} removeAgent={removeAgent} setAgentAdmin={setAgentAdminFlag} setAgentActive={setAgentActiveFlag} />}
           {adminTab === "categories" && <CategoryManagement categories={data.categories} addCategory={addCategory} updateCategory={updateCategory} removeCategory={removeCategory} />}
           {adminTab === "kpi" && <KpiDashboard data={data} isAdmin setKpi={setKpiValue} addDef={addKpiDef} updateDef={updateKpiDef} removeDef={removeKpiDef} />}
           {adminTab === "logs" && <Logs logs={data.logs} />}

@@ -65,7 +65,7 @@ export function TaskDetail({ task, data, actor, isAdmin, canEdit, onClose, updat
   const addFile = async (file: File) => {
     if (!file) return;
     if (file.type.startsWith("image/")) return addImage(file);
-    if (file.size > 1200000) { setErr("File too large (max ~1.2MB). Add a link instead for big files."); return; }
+    if (file.size > 5 * 1024 * 1024) { setErr("File too large (max 5MB). Add a link instead for big files."); return; }
     setErr(""); setBusy(true);
     try {
       const dataUrl = await readFileDataUrl(file);

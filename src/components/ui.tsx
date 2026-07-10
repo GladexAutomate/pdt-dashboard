@@ -121,12 +121,18 @@ export function PrioritySelect({ value, onChange }: { value: Priority; onChange:
 }
 
 export function AssigneeSelect({ value, agents, onChange }: { value: string | null; agents: Agent[]; onChange: (id: string) => void }) {
+  // resigned agents can't receive new work, so they're left out of the
+  // pickable options — but if a task is still sitting with one (they left
+  // before it got reassigned), show them anyway so the select isn't blank.
+  const current = agents.find((a) => a.id === value);
+  const activeAgents = agents.filter((a) => a.isActive);
   return (
     <select value={value ?? ""} onChange={(e) => onChange(e.target.value)}
       style={{ border: `1px solid ${C.line}`, background: "#fff", color: C.text, fontWeight: 600, fontSize: 12.5, padding: "5px 8px", borderRadius: 8, cursor: "pointer", outline: "none" }}>
+      {current && !current.isActive && <option value={current.id}>{current.name} (Resigned)</option>}
       {(["Domestic", "International"] as Team[]).map((team) => (
         <optgroup key={team} label={team}>
-          {agents.filter((a) => a.team === team).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          {activeAgents.filter((a) => a.team === team).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
         </optgroup>
       ))}
     </select>

@@ -64,11 +64,12 @@ export function MemberDetail({ agent, data, onBack, addRec, completeRec, deleteR
               <div className="flex items-center gap-2">
                 <span style={{ fontWeight: 700, fontSize: 19 }}>{selfView ? `Hi, ${agent.name}` : agent.name}</span>
                 <Chip color={teamColor(agent.team)} soft={agent.team === "Domestic" ? "#FBEAE4" : "#E7EDFB"} icon={agent.team === "Domestic" ? <MapPin size={11} /> : <Globe size={11} />}>{agent.team}</Chip>
+                {!agent.isActive && <Chip color={C.rose} soft={C.roseSoft}>Resigned</Chip>}
               </div>
               <div style={{ fontSize: 12.5, color: C.sub }}>@{agent.username}</div>
             </div>
           </div>
-          {isAdmin && <Btn onClick={() => setShowAdd((v) => !v)} kind="teal" sm icon={<Plus size={15} />}>Assign task</Btn>}
+          {isAdmin && agent.isActive && <Btn onClick={() => setShowAdd((v) => !v)} kind="teal" sm icon={<Plus size={15} />}>Assign task</Btn>}
         </div>
         <div className="grid gap-3 mt-4" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(95px,1fr))" }}>
           <MiniStat icon={<Target size={15} />} label="Productivity" value={pct(s.productivity)} />
