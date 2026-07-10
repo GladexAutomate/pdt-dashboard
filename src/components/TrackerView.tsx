@@ -131,7 +131,7 @@ export function TrackerView({ col, config, data, isAdmin, meId, addRec, updateRe
         <select value={fStaff} onChange={(e) => setFStaff(e.target.value)} style={selStyle}><option value="all">All staff</option>{data.agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
         <select value={fPriority} onChange={(e) => setFPriority(e.target.value)} style={selStyle}><option value="all">All priorities</option>{PRIORITIES.map((p) => <option key={p} value={p}>{PRIORITY_META[p].txt}</option>)}</select>
         <select value={fStatus} onChange={(e) => setFStatus(e.target.value)} style={selStyle}><option value="all">All statuses</option>{STATUSES.map((s) => <option key={s} value={s}>{STATUS_META[s].txt}</option>)}</select>
-        {dests.length > 0 && <select value={fDest} onChange={(e) => setFDest(e.target.value)} style={selStyle}><option value="all">All destinations</option>{dests.map((d) => <option key={d} value={d}>{d}</option>)}</select>}
+        {config.columns.includes("destination") && dests.length > 0 && <select value={fDest} onChange={(e) => setFDest(e.target.value)} style={selStyle}><option value="all">All destinations</option>{dests.map((d) => <option key={d} value={d}>{d}</option>)}</select>}
         <span style={{ fontSize: 12, color: C.sub, marginLeft: "auto" }}>{sorted.length} of {records.length}</span>
       </div>
 

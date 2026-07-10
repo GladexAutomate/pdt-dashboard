@@ -44,11 +44,16 @@ export function flattenRecords(data: AppData): TaskRecord[] {
   for (const col of COLLECTIONS) for (const r of (data[col] || [])) out.push({ ...r, _col: col, _isProject: PROJECT_COLS.includes(col) });
   return out;
 }
+// "My work" = tasks + daily — same shape, same stats treatment. PREMIUM/GLADEX/Tariff
+// stay out of this pool since they're separate trackers with their own dedicated views.
+export function myWorkPool(data: AppData): TaskRecord[] {
+  return flattenRecords(data).filter((r) => r._col === "tasks" || r._col === "daily");
+}
 export function reassignCount(r: TaskRecord, y: number, m: number): number {
   return (r.activity || []).filter((a) => a.type === "reassign" && inMonth(a.ts, y, m)).length;
 }
-export function staffMonth(records: TaskRecord[], agentId: string, y: number, m: number): StaffMonthStats {
-  const mine = records.filter((r) => r.agentId === agentId && recInMonth(r, y, m));
+export function staffMonth(records: TaskRecord[], agentId: string, agentName: string, y: number, m: number): StaffMonthStats {
+  const mine = records.filter((r) => recInMonth(r, y, m) && (DONEISH(r.status) && r.completedBy ? r.completedBy === agentName : r.agentId === agentId));
   const completed = mine.filter((r) => DONEISH(r.status) && inMonth(r.completedAt, y, m));
   const started = mine.filter((r) => r.startedAt || r.status !== "pending");
   const pending = mine.filter((r) => r.status === "pending");
@@ -59,7 +64,6 @@ export function staffMonth(records: TaskRecord[], agentId: string, y: number, m:
   const projects = mine.filter((r) => r._isProject);
   const completedProjects = completed.filter((r) => r._isProject);
   const activeProjects = projects.filter((r) => !DONEISH(r.status) && !DEAD(r.status));
-  const dests = [...new Set(mine.map((r) => r.destination).filter(Boolean))] as string[];
   const reassigned = mine.reduce((s, r) => s + reassignCount(r, y, m), 0);
   const times = completed.map((r) => actualHrs(r)).filter((x): x is number => x != null);
   const assignedN = mine.length, completedN = completed.length;
@@ -69,7 +73,7 @@ export function staffMonth(records: TaskRecord[], agentId: string, y: number, m:
   const kpi = Math.round(completionPct * 0.45 + onTimePct * 0.30 + productivity * 0.25);
   const lastActivity = Math.max(0, ...mine.map((r) => r.updatedAt || 0), ...mine.flatMap((r) => (r.activity || []).map((a) => a.ts)));
   return {
-    mine, completed, started, pending, overdue, high, onTime, delayed, projects, completedProjects, activeProjects, dests, reassigned,
+    mine, completed, started, pending, overdue, high, onTime, delayed, projects, completedProjects, activeProjects, reassigned,
     assignedN, completedN, startedN: started.length, pendingN: pending.length, overdueN: overdue.length,
     completionPct, onTimePct, productivity, kpi, avgTime: avg(times), lastActivity: lastActivity || null
   };
@@ -106,8 +110,13 @@ export function readFileDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(r.result as string); r.onerror = reject; r.readAsDataURL(file); });
 }
 
+/* Finished work is credited to whoever actually finished it (completedBy),
+   not whoever currently holds the task — otherwise reassigning a completed
+   task silently moves its speed/accuracy/productivity credit to the new
+   owner, who may not have done that work at all. Work still in progress
+   still follows current ownership, since that's who's actually doing it. */
 export function agentStats(agent: Agent, tasks: TaskRecord[]): AgentStats {
-  const mine = tasks.filter((t) => t.agentId === agent.id);
+  const mine = tasks.filter((t) => (DONEISH(t.status) && t.completedBy ? t.completedBy === agent.name : t.agentId === agent.id));
   const active = mine.filter((t) => !DEAD(t.status));
   const completed = mine.filter((t) => DONEISH(t.status));
   const published = mine.filter((t) => t.status === "published");
@@ -127,7 +136,8 @@ export function agentStats(agent: Agent, tasks: TaskRecord[]): AgentStats {
 }
 export function groupStats(agents: Agent[], tasks: TaskRecord[]): GroupStats {
   const ids = new Set(agents.map((a) => a.id));
-  const mine = tasks.filter((t) => t.agentId != null && ids.has(t.agentId));
+  const names = new Set(agents.map((a) => a.name));
+  const mine = tasks.filter((t) => (DONEISH(t.status) && t.completedBy ? names.has(t.completedBy) : (t.agentId != null && ids.has(t.agentId))));
   const active = mine.filter((t) => !DEAD(t.status));
   const completed = mine.filter((t) => DONEISH(t.status));
   const published = mine.filter((t) => t.status === "published");

@@ -6,7 +6,7 @@ import type { Session } from "../lib/types";
 
 /* ---------------- Shell ---------------- */
 export function Shell({ session, onLogout, onAccount, tabs, active, setActive, children }: {
-  session: Session; onLogout: () => void; onAccount?: () => void; tabs: [string, string, ReactNode][];
+  session: Session; onLogout: () => void; onAccount?: () => void; tabs: [string, string, ReactNode, number?][];
   active: string; setActive: (id: string) => void; children?: ReactNode;
 }) {
   return (
@@ -31,10 +31,15 @@ export function Shell({ session, onLogout, onAccount, tabs, active, setActive, c
         </div>
       </header>
       <nav className="flex gap-1 flex-wrap" style={{ background: C.surface, borderBottom: `1px solid ${C.line}`, padding: "0 12px" }}>
-        {tabs.map(([id, label, icon]) => (
+        {tabs.map(([id, label, icon, badge]) => (
           <button key={id} onClick={() => setActive(id)} className="flex items-center gap-1.5 font-semibold"
             style={{ fontSize: 13, padding: "11px 13px", color: active === id ? C.text : C.sub, borderBottom: `2px solid ${active === id ? C.ink : "transparent"}`, background: "transparent" }}>
             {icon}{label}
+            {!!badge && (
+              <span style={{ background: C.rose, color: "#fff", borderRadius: 999, fontSize: 11, fontWeight: 700, lineHeight: 1, padding: "2px 6px", minWidth: 16, textAlign: "center" }}>
+                {badge}
+              </span>
+            )}
           </button>
         ))}
       </nav>

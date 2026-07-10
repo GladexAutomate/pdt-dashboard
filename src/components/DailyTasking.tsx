@@ -1,10 +1,10 @@
 import { useState } from "react";
 import {
-  CalendarCheck, Plus, Users, MapPin, Globe, Play, Pause, CheckCircle2, Send, Trash2, Clock, Activity, FileText, Flag
+  CalendarCheck, Plus, Users, MapPin, Globe, Play, Pause, CheckCircle2, Send, Trash2, Clock, Activity, FileText, Flag, Download, ChevronDown, ChevronUp
 } from "lucide-react";
 import { C, card, catC, teamColor, inputStyle } from "../lib/theme";
 import { PRIORITIES, PRIORITY_META, STATUS_META, DONEISH, DEAD } from "../lib/constants";
-import { toDateInput, fromDateInput } from "../lib/helpers";
+import { toDateInput, fromDateInput, downloadCSV } from "../lib/helpers";
 import { Avatar, Chip, Btn, Field } from "./ui";
 import type { AppData, Agent, TaskRecord, Status, Priority, ColKey, Team, Category } from "../lib/types";
 import { todayKey, fmtDayLabel, fmtClock, buildDayTimeline, eodOf, fmtHours } from "../lib/daily";
@@ -34,7 +34,21 @@ export function DailyTasking({ data, isAdmin, meId, addRec, setRecStatus, delete
 
   const scope = isAdmin ? data.agents : data.agents.filter((a) => a.id === meId);
   const shown = isAdmin && staffF !== "all" ? scope.filter((a) => a.id === staffF) : scope;
-  const dailyFor = (agentId: string) => (data.daily || []).filter((d) => d.agentId === agentId && toDateInput(d.dueDate) === date);
+  // matches the same credit rule as agentStats/staffMonth: finished work
+  // stays with whoever finished it, so it still shows on their EOD even
+  // after the task gets reassigned to someone else.
+  const dailyFor = (agent: Agent) => (data.daily || []).filter((d) =>
+    toDateInput(d.dueDate) === date && (DONEISH(d.status) && d.completedBy ? d.completedBy === agent.name : d.agentId === agent.id)
+  );
+
+  const exportReport = () => {
+    const head = ["Staff", "Team", "Task", "Category", "Priority", "Status", "Completed At"];
+    const rows = shown.flatMap((staff) => dailyFor(staff).map((t) => [
+      staff.name, staff.team, t.title, t.category || "", PRIORITY_META[t.priority || "medium"].txt,
+      STATUS_META[t.status].txt, t.completedAt ? fmtClock(t.completedAt) : ""
+    ]));
+    downloadCSV(`daily_eod_report_${date}.csv`, [["Daily Tasking — EOD Report"], ["Date", fmtDayLabel(date)], [], head, ...rows]);
+  };
 
   return (
     <div className="space-y-4">
@@ -50,6 +64,7 @@ export function DailyTasking({ data, isAdmin, meId, addRec, setRecStatus, delete
           {isAdmin && <Btn sm kind="teal" icon={<Plus size={14} />} onClick={() => setShowAssign((v) => !v)}>Assign daily task</Btn>}
           {!isAdmin && meId && <Btn sm kind="teal" icon={<Plus size={14} />} onClick={() => setShowAssign((v) => !v)}>Add task</Btn>}
           {isAdmin && <Btn sm kind="ghost" icon={<Users size={14} />} onClick={() => setShowTeamReport((v) => !v)}>Team daily report</Btn>}
+          {isAdmin && <Btn sm kind="ghost" icon={<Download size={14} />} onClick={exportReport}>Generate report</Btn>}
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "7px 10px" }} />
         </div>
       </div>
@@ -73,7 +88,7 @@ export function DailyTasking({ data, isAdmin, meId, addRec, setRecStatus, delete
       )}
 
       {shown.map((staff) => (
-        <DailyStaffCard key={staff.id} staff={staff} tasks={dailyFor(staff.id)} date={date} categories={data.categories}
+        <DailyStaffCard key={staff.id} staff={staff} tasks={dailyFor(staff)} date={date} categories={data.categories}
           canEdit={isAdmin || staff.id === meId} isAdmin={isAdmin}
           onStatus={(id, status) => setRecStatus(COL, id, status)} onDelete={(id) => deleteRec(COL, id)} onOpen={openDetail} />
       ))}
@@ -136,6 +151,7 @@ function DailyStaffCard({ staff, tasks, date, categories, canEdit, isAdmin, onSt
   onStatus: (id: string, status: Status) => void; onDelete: (id: string) => void; onOpen: (id: string) => void;
 }) {
   const [showEod, setShowEod] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(false);
   const timeline = buildDayTimeline(tasks);
   const eod = eodOf(tasks);
   const doneCount = tasks.filter((t) => DONEISH(t.status)).length;
@@ -187,21 +203,25 @@ function DailyStaffCard({ staff, tasks, date, categories, canEdit, isAdmin, onSt
         </div>
       </div>
 
-      {/* timeline */}
+      {/* timeline — collapsed by default, since every status hop for every
+          task adds up fast and mostly just repeats what the chips above
+          already show */}
       {timeline.length > 0 && (
         <div style={{ padding: "4px 14px 12px" }}>
-          <div className="flex items-center gap-1.5 mb-2" style={{ fontSize: 11.5, fontWeight: 700, color: C.sub, textTransform: "uppercase", letterSpacing: 0.4 }}>
-            <Activity size={13} /> Daily timeline
-          </div>
-          <div style={{ borderLeft: `2px solid ${C.line}`, paddingLeft: 12 }}>
-            {timeline.map((e, i) => (
-              <div key={i} className="flex items-center gap-2" style={{ padding: "3px 0", fontSize: 12.5, position: "relative" }}>
-                <span style={{ position: "absolute", left: -17, width: 8, height: 8, borderRadius: 999, background: e.color }} />
-                <span style={{ color: C.sub, fontVariantNumeric: "tabular-nums", minWidth: 62 }}>{fmtClock(e.ts)}</span>
-                <span>{e.title} — {e.text}</span>
-              </div>
-            ))}
-          </div>
+          <button onClick={() => setShowTimeline((v) => !v)} className="flex items-center gap-1.5 mb-2" style={{ fontSize: 11.5, fontWeight: 700, color: C.sub, textTransform: "uppercase", letterSpacing: 0.4, background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
+            <Activity size={13} /> Daily timeline ({timeline.length}) {showTimeline ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+          </button>
+          {showTimeline && (
+            <div style={{ borderLeft: `2px solid ${C.line}`, paddingLeft: 12 }}>
+              {timeline.map((e, i) => (
+                <div key={i} className="flex items-center gap-2" style={{ padding: "3px 0", fontSize: 12.5, position: "relative" }}>
+                  <span style={{ position: "absolute", left: -17, width: 8, height: 8, borderRadius: 999, background: e.color }} />
+                  <span style={{ color: C.sub, fontVariantNumeric: "tabular-nums", minWidth: 62 }}>{fmtClock(e.ts)}</span>
+                  <span>{e.title} — {e.text}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -239,10 +259,12 @@ function EodBlock({ title, items, color }: { title: string; items: string[]; col
 function TeamDailyReport({ data, date }: { data: AppData; date: string }) {
   const teams = (["Domestic", "International"] as Team[]).map((team) => {
     const members = data.agents.filter((a) => a.team === team).map((a) => {
-      const ts = (data.daily || []).filter((d) => d.agentId === a.id && toDateInput(d.dueDate) === date);
-      return { name: a.name, done: ts.filter((d) => DONEISH(d.status)).length };
+      const ts = (data.daily || []).filter((d) =>
+        toDateInput(d.dueDate) === date && (DONEISH(d.status) && d.completedBy ? d.completedBy === a.name : d.agentId === a.id)
+      );
+      return { name: a.name, titles: ts.filter((d) => DONEISH(d.status)).map((d) => d.title) };
     });
-    return { team, members, done: members.reduce((s, m) => s + m.done, 0) };
+    return { team, members };
   });
   return (
     <div style={{ ...card, padding: 16, borderColor: C.ink }}>
@@ -251,14 +273,15 @@ function TeamDailyReport({ data, date }: { data: AppData; date: string }) {
       <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))" }}>
         {teams.map((t) => (
           <div key={t.team}>
-            <div className="flex items-center justify-between mb-2">
-              <span className="flex items-center gap-1.5 font-semibold" style={{ fontSize: 13.5, color: teamColor(t.team) }}>{t.team === "Domestic" ? <MapPin size={14} /> : <Globe size={14} />}{t.team} Team</span>
-              <span style={{ fontSize: 12, color: C.sub }}>{t.done} completed</span>
+            <div className="flex items-center gap-1.5 mb-2 font-semibold" style={{ fontSize: 13.5, color: teamColor(t.team) }}>
+              {t.team === "Domestic" ? <MapPin size={14} /> : <Globe size={14} />}{t.team} Team
             </div>
             {t.members.map((m) => (
-              <div key={m.name} className="flex items-center justify-between" style={{ padding: "5px 0", borderTop: `1px solid ${C.line}`, fontSize: 13 }}>
-                <span>{m.name}</span>
-                <span style={{ color: C.sub }}><b style={{ color: C.text }}>{m.done}</b> task{m.done !== 1 ? "s" : ""} completed</span>
+              <div key={m.name} style={{ padding: "6px 0", borderTop: `1px solid ${C.line}` }}>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>{m.name}</div>
+                {m.titles.length === 0
+                  ? <div style={{ fontSize: 12, color: C.sub }}>Nothing completed yet.</div>
+                  : m.titles.map((title, i) => <div key={i} style={{ fontSize: 12.5, color: C.text, marginTop: 2 }}>• {title}</div>)}
               </div>
             ))}
           </div>

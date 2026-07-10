@@ -252,7 +252,6 @@ export interface StaffMonthStats {
   projects: TaskRecord[];
   completedProjects: TaskRecord[];
   activeProjects: TaskRecord[];
-  dests: string[];
   reassigned: number;
   assignedN: number;
   completedN: number;

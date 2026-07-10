@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { Users, ScrollText, MapPin, Globe, ChevronRight, ArrowLeft, Filter, Sparkles } from "lucide-react";
 import { C, card, catC, teamColor, cellStyle, dateInputStyle } from "../lib/theme";
 import { STATUSES, STATUS_META, STATUS_ORDER, PRIORITIES, PRIORITY_META, DEAD, D } from "../lib/constants";
-import { agentStats, groupStats, speedLabel, pct, dueMeta, toDateInput, fromDateInput } from "../lib/helpers";
+import { agentStats, groupStats, speedLabel, pct, dueMeta, toDateInput, fromDateInput, myWorkPool } from "../lib/helpers";
 import { Avatar, Chip, Stat, AssigneeSelect, PrioritySelect, StatusSelect, ProgressBar, EditableText } from "./ui";
 import type { AppData, Agent, TaskRecord, Team, Status, Priority, Category } from "../lib/types";
 
@@ -20,12 +20,13 @@ interface TeamsProps {
 /* ---------------- Teams + member list ---------------- */
 export function Teams({ data, selTeam, setSelTeam, openMember, setStatus, updateTask, reassignTask, openDetail }: TeamsProps) {
   const [view, setView] = useState("members");
+  const pool = myWorkPool(data);
   if (!selTeam) {
     return (
       <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))" }}>
         {(["Domestic", "International"] as Team[]).map((name) => {
           const members = data.agents.filter((a) => a.team === name);
-          const s = groupStats(members, data.tasks);
+          const s = groupStats(members, pool);
           return (
             <div key={name} style={{ ...card, padding: 18, cursor: "pointer" }} onClick={() => setSelTeam(name)}>
               <div className="flex items-center justify-between">
@@ -70,7 +71,7 @@ export function Teams({ data, selTeam, setSelTeam, openMember, setStatus, update
       {view === "members" ? (
         <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))" }}>
           {members.map((a) => {
-            const s = agentStats(a, data.tasks);
+            const s = agentStats(a, pool);
             const sp = speedLabel(s.avgSpeed);
             return (
               <div key={a.id} style={{ ...card, padding: 15, cursor: "pointer" }} onClick={() => openMember(a.id)}>

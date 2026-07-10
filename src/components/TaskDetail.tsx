@@ -2,15 +2,23 @@ import { useState, useEffect } from "react";
 import {
   X, Sparkles, MapPin, Link2, Paperclip, MessageSquare, FileText, Target,
   ExternalLink, Plus, Send, Trash2, CalendarCheck, Image as ImageIcon,
-  ArrowRightLeft, Activity, History
+  ArrowRightLeft, Activity, History, GitBranch
 } from "lucide-react";
 import { C, inputStyle, dateInputStyle, lbl, selStyleBtn, catC } from "../lib/theme";
-import { STATUS_META, PRIORITY_META, DONEISH } from "../lib/constants";
+import { STATUS_META, PRIORITY_META, PRIORITIES, DONEISH } from "../lib/constants";
 import { relTime, fmtDay, toDateInput, fromDateInput, dueMeta, normUrl, resizeImage, readFileDataUrl } from "../lib/helpers";
 import { Chip, Btn, ProgressBar, StatusSelect, PrioritySelect, AssigneeSelect, DetailSection, EditableArea } from "./ui";
-import type { TaskRecord, AppData, Actor, Status, ProofItem, CommentEntry, ActivityEntry } from "../lib/types";
+import type { TaskRecord, AppData, Actor, Status, Priority, ProofItem, CommentEntry, ActivityEntry } from "../lib/types";
 
 type TimelineItem = (CommentEntry & { kind: "comment" }) | (ActivityEntry & { kind: "event" });
+
+export interface FollowUpInput {
+  title: string;
+  category: string;
+  priority: Priority;
+  agentId: string;
+  dueDate: number | null;
+}
 
 interface TaskDetailProps {
   task: TaskRecord;
@@ -25,10 +33,11 @@ interface TaskDetailProps {
   addComment: (id: string, text: string) => void;
   pushActivity: (id: string, type: string, text: string) => void;
   deleteTask: (id: string) => void;
+  createFollowUp: (input: FollowUpInput) => void;
 }
 
 /* ---------------- Task detail drawer ---------------- */
-export function TaskDetail({ task, data, actor, isAdmin, canEdit, onClose, updateTask, setStatus, reassignTask, addComment, pushActivity, deleteTask }: TaskDetailProps) {
+export function TaskDetail({ task, data, actor, isAdmin, canEdit, onClose, updateTask, setStatus, reassignTask, addComment, pushActivity, deleteTask, createFollowUp }: TaskDetailProps) {
   const t = task;
   const [proof, setProof] = useState<ProofItem[]>(task.proof || []);
   const [err, setErr] = useState("");
@@ -38,6 +47,7 @@ export function TaskDetail({ task, data, actor, isAdmin, canEdit, onClose, updat
   const [linkUrl, setLinkUrl] = useState("");
   const [proofLabel, setProofLabel] = useState("");
   const [proofUrl, setProofUrl] = useState("");
+  const [showFollowUp, setShowFollowUp] = useState(false);
 
   useEffect(() => { setProof(task.proof || []); }, [task.id]);
 
@@ -231,12 +241,78 @@ export function TaskDetail({ task, data, actor, isAdmin, canEdit, onClose, updat
             </div>
           </DetailSection>
 
+          {canEdit && (
+            <DetailSection icon={<GitBranch size={15} color={C.ink} />} title="Follow-up task">
+              <div style={{ fontSize: 12, color: C.sub, marginBottom: showFollowUp ? 10 : 8 }}>
+                Use this when someone else needs to pick up a distinct part of this work — it creates a separate task so their hours and completion get tracked under their own name, with a link back to this one.
+              </div>
+              {!showFollowUp ? (
+                <Btn sm kind="ghost" icon={<Plus size={13} />} onClick={() => setShowFollowUp(true)}>Create follow-up task</Btn>
+              ) : (
+                <FollowUpForm data={data} original={t} defaultAgentId={actor.id !== "admin" ? actor.id : undefined}
+                  onCreate={(input) => { createFollowUp(input); setShowFollowUp(false); }}
+                  onCancel={() => setShowFollowUp(false)} />
+              )}
+            </DetailSection>
+          )}
+
           {isAdmin && (
             <div className="flex justify-end" style={{ borderTop: `1px solid ${C.line}`, paddingTop: 14 }}>
               <Btn sm kind="danger" icon={<Trash2 size={13} />} onClick={() => deleteTask(t.id)}>Delete task</Btn>
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function FollowUpForm({ data, original, defaultAgentId, onCreate, onCancel }: {
+  data: AppData; original: TaskRecord; defaultAgentId?: string; onCreate: (input: FollowUpInput) => void; onCancel: () => void;
+}) {
+  const [title, setTitle] = useState(original.title);
+  const [category, setCategory] = useState(original.category || data.categories[0]?.name || "");
+  const [priority, setPriority] = useState<Priority>(original.priority || "medium");
+  const [agentId, setAgentId] = useState(defaultAgentId || data.agents[0]?.id || "");
+  const [due, setDue] = useState("");
+  const valid = title.trim().length > 1 && !!agentId;
+
+  return (
+    <div style={{ background: C.paper, borderRadius: 11, padding: 12 }}>
+      <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))" }}>
+        <div style={{ gridColumn: "1 / -1" }}>
+          <div style={lbl}>Task title</div>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. BOT setup for Hanoi - Sapa" style={inputStyle} />
+        </div>
+        <div>
+          <div style={lbl}>Assign to</div>
+          <select value={agentId} onChange={(e) => setAgentId(e.target.value)} style={inputStyle}>
+            {data.agents.map((a) => <option key={a.id} value={a.id}>{a.name} · {a.team}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={lbl}>Category</div>
+          <select value={category} onChange={(e) => setCategory(e.target.value)} style={inputStyle}>
+            {data.categories.map((c) => <option key={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={lbl}>Priority</div>
+          <select value={priority} onChange={(e) => setPriority(e.target.value as Priority)} style={inputStyle}>
+            {PRIORITIES.map((p) => <option key={p} value={p}>{PRIORITY_META[p].txt}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={lbl}>Due date</div>
+          <input type="date" value={due} onChange={(e) => setDue(e.target.value)} style={inputStyle} />
+        </div>
+      </div>
+      <div className="flex gap-2 mt-3">
+        <Btn sm kind="teal" disabled={!valid} icon={<Plus size={13} />}
+          onClick={() => onCreate({ title: title.trim(), category, priority, agentId, dueDate: fromDateInput(due) })}>
+          Create follow-up
+        </Btn>
+        <Btn sm kind="ghost" onClick={onCancel}>Cancel</Btn>
       </div>
     </div>
   );

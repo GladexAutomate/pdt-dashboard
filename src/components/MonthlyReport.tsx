@@ -3,19 +3,20 @@ import {
   FileText, ScrollText, Users, MapPin, Globe, Lock, Send, CheckCircle2, History
 } from "lucide-react";
 import { C, card, cellStyle, teamColor } from "../lib/theme";
-import { MONTHS, DEPARTMENTS, STATUSES, STATUS_META, PRIORITY_META, REPORT_FLOW, DONEISH, DEAD } from "../lib/constants";
+import { MONTHS, STATUSES, STATUS_META, PRIORITY_META, REPORT_FLOW, DONEISH, DEAD } from "../lib/constants";
 import {
   flattenRecords, staffMonth, kpiBand, monthKey, inMonth, recInMonth,
   dueMeta, fmtDay, sum, avg, downloadCSV
 } from "../lib/helpers";
 import { Avatar, Chip, Btn, Stat, RBox, ChartCard, MiniBars, BarsH } from "./ui";
-import type { AppData, Agent, ColKey, Team, StaffMonthStats, ChartItem } from "../lib/types";
+import type { AppData, Agent, ColKey, Team, TaskRecord, StaffMonthStats, ChartItem } from "../lib/types";
 
 interface TeamAgg {
   team: Team;
   staffCount: number;
   assigned: number;
   completed: number;
+  completedProjects: number;
   pending: number;
   overdue: number;
   productivity: number;
@@ -32,6 +33,7 @@ function TeamSummary({ teams, monthName }: { teams: TeamAgg[]; monthName: string
   const comparisons: [string, (t: TeamAgg) => number, number, (v: number) => ReactNode][] = [
     ["Completion %", (t) => t.completionPct, maxComp, (v) => Math.round(v) + "%"],
     ["Tasks completed", (t) => t.completed, Math.max(1, ...teams.map((x) => x.completed)), (v) => v],
+    ["Completed projects", (t) => t.completedProjects, Math.max(1, ...teams.map((x) => x.completedProjects)), (v) => v],
     ["Productivity", (t) => t.productivity, maxProd, (v) => v]
   ];
   return (
@@ -54,8 +56,9 @@ function TeamSummary({ teams, monthName }: { teams: TeamAgg[]; monthName: string
             <div style={{ height: 8, background: C.paper, borderRadius: 999, margin: "8px 0 12px" }}>
               <div style={{ width: Math.min(100, t.completionPct) + "%", height: "100%", background: teamColor(t.team), borderRadius: 999 }} />
             </div>
-            <div className="flex justify-between" style={{ borderTop: `1px solid ${C.line}`, paddingTop: 10 }}>
+            <div className="flex justify-between flex-wrap gap-2" style={{ borderTop: `1px solid ${C.line}`, paddingTop: 10 }}>
               <Stat label="Completed" value={t.completed} color={C.teal} />
+              <Stat label="Projects done" value={t.completedProjects} color={C.international} />
               <Stat label="Pending" value={t.pending} />
               <Stat label="Overdue" value={t.overdue} color={t.overdue ? C.rose : C.sub} />
               <Stat label="Staff" value={t.staffCount} />
@@ -109,8 +112,6 @@ export function MonthlyReport({ data, isAdmin, meId, actorName, openAny, submitR
   const [month, setMonth] = useState(today.getMonth());
   const [staff, setStaff] = useState<string>(isAdmin ? "all" : (meId || ""));
   const [fTeam, setFTeam] = useState("all");
-  const [fDept, setFDept] = useState("all");
-  const [fDest, setFDest] = useState("all");
   const [fStatus, setFStatus] = useState("all");
   const [project, setProject] = useState("");
 
@@ -118,10 +119,8 @@ export function MonthlyReport({ data, isAdmin, meId, actorName, openAny, submitR
   const q = project.trim().toLowerCase();
   const scoped = all.filter((r) => {
     if (fTeam !== "all" && r.team !== fTeam) return false;
-    if (fDept !== "all" && r.department !== fDept) return false;
-    if (fDest !== "all" && r.destination !== fDest) return false;
     if (fStatus !== "all" && r.status !== fStatus) return false;
-    if (q && ![r.title, r.category, r.department, r.destination].join(" ").toLowerCase().includes(q)) return false;
+    if (q && ![r.title, r.category].join(" ").toLowerCase().includes(q)) return false;
     return true;
   });
   const agentName = (id: string | null | undefined) => data.agents.find((a) => a.id === id)?.name || "—";
@@ -129,10 +128,14 @@ export function MonthlyReport({ data, isAdmin, meId, actorName, openAny, submitR
   const ss = { border: `1px solid ${C.line}`, background: "#fff", borderRadius: 8, padding: "6px 9px", fontSize: 12.5, color: C.text, outline: "none", fontWeight: 600, cursor: "pointer" };
   const monthName = `${MONTHS[month]} ${year}`;
   const years = [today.getFullYear(), today.getFullYear() - 1, today.getFullYear() - 2];
-  const dests = [...new Set(all.map((r) => r.destination).filter(Boolean))];
 
   const single = staff !== "all";
-  const sm = single ? staffMonth(scoped, staff, year, month) : null;
+  const staffName = single ? agentName(staff) : "";
+  // matches staffMonth's credit rule: finished work follows completedBy, work
+  // still in progress follows current ownership — keeps this staff member's
+  // charts consistent with their staffMonth numbers below.
+  const belongsToStaff = (r: TaskRecord) => (DONEISH(r.status) && r.completedBy ? r.completedBy === staffName : r.agentId === staff);
+  const sm = single ? staffMonth(scoped, staff, staffName, year, month) : null;
   const reportKey = `${staff}:${monthKey(year, month)}`;
   const reportState = (data.reports && data.reports[reportKey]?.status) || "in_progress";
   const locked = reportState === "locked";
@@ -141,42 +144,39 @@ export function MonthlyReport({ data, isAdmin, meId, actorName, openAny, submitR
   // analytics
   const trend: ChartItem[] = [...Array(6)].map((_, i) => {
     const dte = new Date(year, month - (5 - i), 1); const yy = dte.getFullYear(), mm = dte.getMonth();
-    const base = single ? scoped.filter((r) => r.agentId === staff) : scoped;
+    const base = single ? scoped.filter(belongsToStaff) : scoped;
     return { label: MONTHS[mm], value: base.filter((r) => DONEISH(r.status) && inMonth(r.completedAt, yy, mm)).length };
   });
-  const monthSet = (single ? scoped.filter((r) => r.agentId === staff) : scoped).filter((r) => recInMonth(r, year, month));
+  const monthSet = (single ? scoped.filter(belongsToStaff) : scoped).filter((r) => recInMonth(r, year, month));
   const statusItems: ChartItem[] = STATUSES.map((s) => ({ label: STATUS_META[s].txt, value: monthSet.filter((r) => r.status === s).length, color: STATUS_META[s].c })).filter((x) => x.value > 0);
-  const destMap: Record<string, number> = {}; monthSet.forEach((r) => { if (r.destination) destMap[r.destination] = (destMap[r.destination] || 0) + 1; });
-  const destItems: ChartItem[] = Object.entries(destMap).map(([k, v]) => ({ label: k, value: v, color: C.international })).sort((a, b) => b.value - a.value);
   const teamItems: ChartItem[] = (["Domestic", "International"] as Team[]).map((tm) => ({ label: tm, value: scoped.filter((r) => r.team === tm && DONEISH(r.status) && inMonth(r.completedAt, year, month)).length, color: teamColor(tm) }));
-  const board = agentsList.map((a) => ({ a, sm: staffMonth(scoped, a.id, year, month) })).sort((x, y) => y.sm.kpi - x.sm.kpi);
+  const board = agentsList.map((a) => ({ a, sm: staffMonth(scoped, a.id, a.name, year, month) })).sort((x, y) => y.sm.kpi - x.sm.kpi);
 
   // team performance (independent of the team filter so both teams always compare)
   const scopedNoTeam = all.filter((r) => {
-    if (fDept !== "all" && r.department !== fDept) return false;
-    if (fDest !== "all" && r.destination !== fDest) return false;
     if (fStatus !== "all" && r.status !== fStatus) return false;
-    if (q && ![r.title, r.category, r.department, r.destination].join(" ").toLowerCase().includes(q)) return false;
+    if (q && ![r.title, r.category].join(" ").toLowerCase().includes(q)) return false;
     return true;
   });
   const teamAgg = (team: Team): TeamAgg => {
     const mem = data.agents.filter((a) => a.team === team);
-    const sms = mem.map((a) => ({ a, sm: staffMonth(scopedNoTeam, a.id, year, month) }));
+    const sms = mem.map((a) => ({ a, sm: staffMonth(scopedNoTeam, a.id, a.name, year, month) }));
     const assigned = sum(sms.map((x) => x.sm.assignedN));
     const completed = sum(sms.map((x) => x.sm.completedN));
+    const completedProjects = sum(sms.map((x) => x.sm.completedProjects.length));
     const pending = sum(sms.map((x) => x.sm.pendingN));
     const overdue = sum(sms.map((x) => x.sm.overdueN));
     const productivity = sum(sms.map((x) => x.sm.productivity));
     const kpi = Math.round(avg(sms.map((x) => x.sm.kpi)) || 0);
     const top = [...sms].sort((a, b) => b.sm.kpi - a.sm.kpi)[0];
-    return { team, staffCount: mem.length, assigned, completed, pending, overdue, productivity, kpi, top, completionPct: assigned ? (completed / assigned) * 100 : 0 };
+    return { team, staffCount: mem.length, assigned, completed, completedProjects, pending, overdue, productivity, kpi, top, completionPct: assigned ? (completed / assigned) * 100 : 0 };
   };
   const teams = (["Domestic", "International"] as Team[]).map(teamAgg);
 
   const exportExcel = () => {
-    const head = ["Staff", "Team", "Source", "Project/Title", "Destination", "Category", "Priority", "Status", "Start", "Completion", "Assigned By", "Completed By", "Remarks"];
+    const head = ["Staff", "Team", "Source", "Project/Title", "Category", "Priority", "Status", "Start", "Completion", "Assigned By", "Completed By", "Remarks"];
     const list = single ? sm!.mine : monthSet;
-    const rows = list.map((r) => [agentName(r.agentId), r.team, r._col, r.title, r.destination, r.category || r.department, PRIORITY_META[r.priority || "medium"].txt, STATUS_META[r.status].txt, fmtDay(r.startDate), DONEISH(r.status) ? fmtDay(r.completedAt) : "", r.assignedBy, r.completedBy || "", r.remarks]);
+    const rows = list.map((r) => [agentName(r.agentId), r.team, r._col, r.title, r.category, PRIORITY_META[r.priority || "medium"].txt, STATUS_META[r.status].txt, fmtDay(r.startDate), DONEISH(r.status) ? fmtDay(r.completedAt) : "", r.assignedBy, r.completedBy || "", r.remarks]);
     let meta: unknown[][] = [["Monthly Staff Summary Report"], ["Staff", single ? agentName(staff) : "All staff"], ["Month", monthName], []];
     if (single) meta = meta.concat([["KPI Score", sm!.kpi], ["Completion %", Math.round(sm!.completionPct)], ["Completed", sm!.completedN], ["Assigned", sm!.assignedN], []]);
     downloadCSV(`monthly_report_${single ? agentName(staff) : "all"}_${monthKey(year, month)}.csv`, [...meta, head, ...rows]);
@@ -205,15 +205,13 @@ export function MonthlyReport({ data, isAdmin, meId, actorName, openAny, submitR
           {agentsList.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select>
         <select value={fTeam} onChange={(e) => setFTeam(e.target.value)} style={ss}><option value="all">All teams</option><option>Domestic</option><option>International</option></select>
-        <select value={fDept} onChange={(e) => setFDept(e.target.value)} style={ss}><option value="all">All departments</option>{DEPARTMENTS.map((d) => <option key={d}>{d}</option>)}</select>
-        <select value={fDest} onChange={(e) => setFDest(e.target.value)} style={ss}><option value="all">All destinations</option>{dests.map((d) => <option key={d}>{d}</option>)}</select>
         <select value={fStatus} onChange={(e) => setFStatus(e.target.value)} style={ss}><option value="all">All statuses</option>{STATUSES.map((s) => <option key={s} value={s}>{STATUS_META[s].txt}</option>)}</select>
         <input value={project} onChange={(e) => setProject(e.target.value)} placeholder="Project…" style={{ ...ss, fontWeight: 400, minWidth: 120 }} />
       </div>
 
       {single ? (
         <SingleReport sm={sm!} staffId={staff} data={data} monthName={monthName}
-          trend={trend} statusItems={statusItems} destItems={destItems}
+          trend={trend} statusItems={statusItems}
           reportKey={reportKey} reportState={reportState} locked={locked} owner={owner} isAdmin={isAdmin}
           submitReport={submitReport} approveReport={approveReport} reopenReport={reopenReport} actorName={actorName}
           openAny={(col, id) => !locked && openAny(col, id)} />
@@ -238,7 +236,6 @@ export function MonthlyReport({ data, isAdmin, meId, actorName, openAny, submitR
             <ChartCard title="Tasks completed by month"><MiniBars items={trend} /></ChartCard>
             <ChartCard title="Team comparison (completed)"><MiniBars items={teamItems} /></ChartCard>
             <ChartCard title="Task status breakdown"><BarsH items={statusItems} /></ChartCard>
-            <ChartCard title="Destination workload"><BarsH items={destItems.length ? destItems : []} /></ChartCard>
           </div>
 
           {/* per-staff KPI table */}
@@ -287,7 +284,6 @@ interface SingleReportProps {
   monthName: string;
   trend: ChartItem[];
   statusItems: ChartItem[];
-  destItems: ChartItem[];
   reportKey: string;
   reportState: string;
   locked: boolean;
@@ -300,7 +296,7 @@ interface SingleReportProps {
   openAny: (col: ColKey, id: string) => void;
 }
 
-function SingleReport({ sm, staffId, data, monthName, trend, statusItems, destItems, reportKey, reportState, locked, owner, isAdmin, submitReport, approveReport, reopenReport, actorName, openAny }: SingleReportProps) {
+function SingleReport({ sm, staffId, data, monthName, trend, statusItems, reportKey, reportState, locked, owner, isAdmin, submitReport, approveReport, reopenReport, actorName, openAny }: SingleReportProps) {
   const agent = data.agents.find((a) => a.id === staffId)!;
   const band = kpiBand(sm.kpi);
   const flow = REPORT_FLOW[reportState];
@@ -337,7 +333,6 @@ function SingleReport({ sm, staffId, data, monthName, trend, statusItems, destIt
           <RBox label="Completion" value={Math.round(sm.completionPct) + "%"} c={C.ink2} />
           <RBox label="High-priority done" value={sm.high.length} c={C.amber} />
           <RBox label="Projects handled" value={sm.projects.length} c={C.international} />
-          <RBox label="Destinations" value={sm.dests.length} />
           <RBox label="Avg completion" value={sm.avgTime != null ? sm.avgTime.toFixed(1) + "h" : "—"} />
           <RBox label="Last activity" value={sm.lastActivity ? fmtDay(sm.lastActivity) : "—"} />
         </div>
@@ -365,7 +360,6 @@ function SingleReport({ sm, staffId, data, monthName, trend, statusItems, destIt
       <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))" }}>
         <ChartCard title="Monthly productivity trend (completed)"><MiniBars items={trend} /></ChartCard>
         <ChartCard title="Task status breakdown"><BarsH items={statusItems} /></ChartCard>
-        <ChartCard title="Destination workload"><BarsH items={destItems} /></ChartCard>
       </div>
 
       {/* completed-work table */}
@@ -375,18 +369,17 @@ function SingleReport({ sm, staffId, data, monthName, trend, statusItems, destIt
           <div style={{ overflowX: "auto" }}>
             <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 1100 }}>
               <thead><tr style={{ background: C.paper }}>
-                {["Source", "Project / Task", "Destination", "Category", "Priority", "Status", "Start", "Completed", "Assigned By", "Completed By", "Files", "Links", "Remarks"].map((h) => (
+                {["Source", "Project / Task", "Category", "Priority", "Status", "Start", "Completed", "Assigned By", "Completed By", "Files", "Links", "Remarks"].map((h) => (
                   <th key={h} style={{ textAlign: "left", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, color: C.sub, fontWeight: 700, padding: "10px 12px", borderBottom: `1px solid ${C.line}`, whiteSpace: "nowrap" }}>{h}</th>
                 ))}
               </tr></thead>
               <tbody>
-                {completedSorted.length === 0 && <tr><td colSpan={13} style={{ padding: 18, color: C.sub, fontSize: 13 }}>No completed work recorded for this month.</td></tr>}
+                {completedSorted.length === 0 && <tr><td colSpan={12} style={{ padding: 18, color: C.sub, fontSize: 13 }}>No completed work recorded for this month.</td></tr>}
                 {completedSorted.map((r) => (
                   <tr key={r.id} style={{ borderBottom: `1px solid ${C.line}` }}>
                     <td style={{ ...cellStyle, textTransform: "capitalize", color: C.sub }}>{r._col}</td>
                     <td style={{ ...cellStyle, fontWeight: 600 }}><button onClick={() => r._col && openAny(r._col, r.id)} style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer", color: C.text, textAlign: "left", fontWeight: 600 }}>{r.title}</button></td>
-                    <td style={cellStyle}>{r.destination || "—"}</td>
-                    <td style={cellStyle}>{r.category || r.department || "—"}</td>
+                    <td style={cellStyle}>{r.category || "—"}</td>
                     <td style={cellStyle}><Chip color={PRIORITY_META[r.priority || "medium"].c} soft={PRIORITY_META[r.priority || "medium"].soft}>{PRIORITY_META[r.priority || "medium"].txt}</Chip></td>
                     <td style={cellStyle}><Chip color={STATUS_META[r.status].c} soft={STATUS_META[r.status].soft}>{STATUS_META[r.status].txt}</Chip></td>
                     <td style={cellStyle}>{fmtDay(r.startDate || r.startedAt)}</td>

@@ -105,7 +105,7 @@ export const TRACKERS: Record<"premium" | "gladex" | "tariff", TrackerConfig> = 
     columns: ["title", "department", "assignee", "priority", "status", "progress", "start", "due", "updated"],
     addFields: ["title", "department", "priority", "assignee", "start", "due", "description"] },
   tariff: { label: "Tariff File Monitoring", sub: "Daily tariff file updates submitted per staff member", titleLabel: "Tariff File Name",
-    columns: ["title", "assignee", "team", "destination", "category", "priority", "status", "progress", "start", "due", "updated"],
-    addFields: ["title", "destination", "category", "priority", "assignee", "start", "due", "description"] }
+    columns: ["title", "assignee", "team", "category", "priority", "status", "progress", "start", "due", "updated"],
+    addFields: ["title", "category", "priority", "assignee", "start", "due", "description"] }
 };
 export const COL_LABEL: Record<string, string> = { title: "Title", category: "Category", department: "Department", destination: "Destination", assignee: "Assigned To", team: "Team", priority: "Priority", status: "Status", progress: "Progress", start: "Start Date", due: "Due Date", updated: "Last Updated" };

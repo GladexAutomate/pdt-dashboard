@@ -1,14 +1,15 @@
 import { useState, useEffect } from "react";
 import {
-  LayoutDashboard, Users, ScrollText, Target, Sparkles, Package, FileText, Gauge, Activity, CalendarCheck, UserCog, Tag
+  LayoutDashboard, Users, ScrollText, Target, Sparkles, Package, FileText, Gauge, Activity, CalendarCheck, UserCog, Tag, ArrowRightLeft
 } from "lucide-react";
 
 import { C } from "./lib/theme";
 import { TRACKERS, DONEISH, H, STATUS_META } from "./lib/constants";
+import { flattenRecords } from "./lib/helpers";
 import { fetchAppData, insertRecord, updateRecordRow, deleteRecordRow, insertLog, upsertReport, setKpiProgressRow, insertKpiDefRow, updateKpiDefRow, deleteKpiDefRow, subscribeToChanges, createAgent, updateAgentRow, deleteAgentRow, updateAdminRow, insertCategoryRow, updateCategoryRow, deleteCategoryRow, setAgentAdmin } from "./lib/api";
 import type {
   AppData, TaskRecord, Status, Team, ColKey, LogEntry, ReportState, Session,
-  LoginResult, DetailTarget, Agent, ActivityEntry, CommentEntry, KpiDef, Category
+  LoginResult, DetailTarget, Agent, ActivityEntry, CommentEntry, KpiDef, Category, Priority
 } from "./lib/types";
 import { Login } from "./components/Login";
 import { Shell } from "./components/Shell";
@@ -24,6 +25,7 @@ import { KpiDashboard } from "./components/KpiDashboard";
 import { DailyTasking } from "./components/DailyTasking";
 import { UserManagement, type NewAgentInput, type UpdateAgentInput } from "./components/UserManagement";
 import { CategoryManagement } from "./components/CategoryManagement";
+import { ReassignedTasks } from "./components/ReassignedTasks";
 
 type LogInput = Omit<LogEntry, "id" | "ts">;
 
@@ -102,7 +104,7 @@ export default function App() {
   };
 
   /* ---- generalized record mutators (work on any collection) ---- */
-  const addRec = (col: ColKey, r: Partial<TaskRecord>) => {
+  const addRec = (col: ColKey, r: Partial<TaskRecord>): string => {
     const id = (col === "tasks" ? "t" : col.slice(0, 2)) + Date.now();
     const now = Date.now();
     const full: TaskRecord = {
@@ -117,6 +119,7 @@ export default function App() {
       () => persistCol(col, (list) => list.filter((x) => x.id !== id)),
       () => log({ userId: actor().id, name: actor().name, role: actor().role, type: "create", detail: `Added "${r.title}"` })
     );
+    return id;
   };
   const updateRec = (col: ColKey, id: string, patch: Partial<TaskRecord>) => {
     const prev = (data?.[col] || []).find((r) => r.id === id);
@@ -134,7 +137,10 @@ export default function App() {
     if (DONEISH(status)) {
       patch.completedAt = t.completedAt ?? Date.now();
       patch.progress = 100;
-      patch.completedBy = actor().name;
+      // preserve whoever actually finished it, same as completedAt above —
+      // a later transition (e.g. Completed → Published by someone else,
+      // often just a pipeline/approval step) shouldn't steal their credit.
+      patch.completedBy = t.completedBy ?? actor().name;
       if (!t.startedAt) patch.startedAt = t.startDate || (Date.now() - (t.estimatedHours || 4) * H);
     }
     if (status === "in_progress" && !t.startedAt) patch.startedAt = Date.now();
@@ -185,6 +191,18 @@ export default function App() {
       () => updateRecordRow(id, patch),
       () => persistCol(col, (l) => l.map((r) => (r.id === id ? t : r)))
     );
+  };
+  const createFollowUpTask = (col: ColKey, originalId: string, input: { title: string; category: string; priority: Priority; agentId: string; dueDate: number | null }) => {
+    const original = (data?.[col] || []).find((t) => t.id === originalId);
+    if (!original) return;
+    const assignee = data?.agents.find((a) => a.id === input.agentId);
+    const newId = addRec(col, {
+      title: input.title, category: input.category, priority: input.priority, agentId: input.agentId,
+      team: assignee?.team, dueDate: input.dueDate, status: "pending",
+      description: `Follow-up to "${original.title}"${original.completedBy ? ` (originally completed by ${original.completedBy})` : ""}.`
+    });
+    pushRecActivity(col, originalId, "link", `Created follow-up task "${input.title}" for ${assignee?.name || "—"}`);
+    setDetail({ col, id: newId });
   };
   const deleteRec = (col: ColKey, id: string) => {
     const prev = (data?.[col] || []).find((r) => r.id === id);
@@ -406,6 +424,7 @@ export default function App() {
     openDetail: (id: string) => setDetail({ col, id })
   });
   const detailRec = detail ? (data[detail.col] || []).find((r) => r.id === detail.id) : null;
+  const reassignedForMe = flattenRecords(data).filter((t) => (t.activity || []).some((a) => a.type === "reassign") && (session?.role === "admin" || t.agentId === session?.agentId)).length;
   const reportProps = {
     data, isAdmin: session?.role === "admin", meId: session?.agentId, actorName: session?.name,
     openAny: (col: ColKey, id: string) => setDetail({ col, id }), submitReport, approveReport, reopenReport
@@ -423,10 +442,11 @@ export default function App() {
         <Login onLogin={doLogin} />
       ) : session.role === "admin" ? (
         <Shell session={session} onLogout={() => setSession(null)} onAccount={() => setShowAccount(true)}
-          tabs={[["home", "Dashboard", <LayoutDashboard size={16} />], ["teams", "Teams", <Users size={16} />], ["daily", "Daily Tasking", <CalendarCheck size={16} />], ["users", "Users", <UserCog size={16} />], ["categories", "Categories", <Tag size={16} />], ["kpi", "KPI Targets", <Target size={16} />], ["premium", "PREMIUM", <Sparkles size={16} />], ["gladex", "GLADEX", <Package size={16} />], ["tariff", "Tariff", <FileText size={16} />], ["report", "Monthly Report", <Gauge size={16} />], ["logs", "Logs", <ScrollText size={16} />]]}
+          tabs={[["home", "Dashboard", <LayoutDashboard size={16} />], ["teams", "Teams", <Users size={16} />], ["daily", "Daily Tasking", <CalendarCheck size={16} />], ["reassigned", "Reassigned Tasks", <ArrowRightLeft size={16} />, reassignedForMe], ["users", "Users", <UserCog size={16} />], ["categories", "Categories", <Tag size={16} />], ["kpi", "KPI Targets", <Target size={16} />], ["premium", "PREMIUM", <Sparkles size={16} />], ["gladex", "GLADEX", <Package size={16} />], ["tariff", "Tariff", <FileText size={16} />], ["report", "Monthly Report", <Gauge size={16} />], ["logs", "Logs", <ScrollText size={16} />]]}
           active={adminTab} setActive={(t) => { setAdminTab(t); setSelTeam(null); setSelAgent(null); }}>
           {adminTab === "home" && <AdminHome data={data} go={(team) => { setAdminTab("teams"); setSelTeam(team as Team); }} />}
             {adminTab === "daily" && <DailyTasking {...trackerProps("daily")} isAdmin />}
+          {adminTab === "reassigned" && <ReassignedTasks data={data} isAdmin meId={session?.agentId} openDetail={(col, id) => setDetail({ col, id })} />}
           {adminTab === "users" && <UserManagement data={data} addAgent={addAgent} updateAgent={updateAgent} removeAgent={removeAgent} setAgentAdmin={setAgentAdminFlag} />}
           {adminTab === "categories" && <CategoryManagement categories={data.categories} addCategory={addCategory} updateCategory={updateCategory} removeCategory={removeCategory} />}
           {adminTab === "kpi" && <KpiDashboard data={data} isAdmin setKpi={setKpiValue} addDef={addKpiDef} updateDef={updateKpiDef} removeDef={removeKpiDef} />}
@@ -444,12 +464,13 @@ export default function App() {
         </Shell>
       ) : (
         <Shell session={session} onLogout={() => setSession(null)}
-          tabs={[["home", "My work", <LayoutDashboard size={16} />], ["daily", "Daily Tasking", <CalendarCheck size={16} />], ["kpi", "KPI Targets", <Target size={16} />], ["premium", "PREMIUM", <Sparkles size={16} />], ["gladex", "GLADEX", <Package size={16} />], ["tariff", "Tariff", <FileText size={16} />], ["report", "My Report", <Gauge size={16} />], ["activity", "Activity", <Activity size={16} />]]}
+          tabs={[["home", "My work", <LayoutDashboard size={16} />], ["daily", "Daily Tasking", <CalendarCheck size={16} />], ["reassigned", "Reassigned Tasks", <ArrowRightLeft size={16} />, reassignedForMe], ["kpi", "KPI Targets", <Target size={16} />], ["premium", "PREMIUM", <Sparkles size={16} />], ["gladex", "GLADEX", <Package size={16} />], ["tariff", "Tariff", <FileText size={16} />], ["report", "My Report", <Gauge size={16} />], ["activity", "Activity", <Activity size={16} />]]}
           active={agentTab} setActive={setAgentTab}>
           {agentTab === "home"
             ? <MemberDetail agent={data.agents.find((a) => a.id === session.agentId)!} data={data}
                 completeRec={completeRec} setRecStatus={setRecStatus} openDetail={(col, id) => setDetail({ col, id })} isAdmin={false} selfView />
             : agentTab === "daily" ? <DailyTasking {...trackerProps("daily")} isAdmin={false} />
+            : agentTab === "reassigned" ? <ReassignedTasks data={data} isAdmin={false} meId={session.agentId} openDetail={(col, id) => setDetail({ col, id })} />
             : agentTab === "kpi" ? <KpiDashboard data={data} isAdmin={false} setKpi={setKpiValue} />
             : agentTab === "premium" ? <TrackerView col="premium" config={TRACKERS.premium} {...trackerProps("premium")} />
             : agentTab === "gladex" ? <TrackerView col="gladex" config={TRACKERS.gladex} {...trackerProps("gladex")} />
@@ -469,7 +490,8 @@ export default function App() {
           reassignTask={(id, n) => reassignRec(detail.col, id, n)}
           addComment={(id, text) => addRecComment(detail.col, id, text)}
           pushActivity={(id, ty, tx) => pushRecActivity(detail.col, id, ty, tx)}
-          deleteTask={(id) => { deleteRec(detail.col, id); setDetail(null); }} />
+          deleteTask={(id) => { deleteRec(detail.col, id); setDetail(null); }}
+          createFollowUp={(input) => createFollowUpTask(detail.col, detailRec.id, input)} />
       )}
       {showAccount && session?.role === "admin" && (
         <AdminAccount session={session} onSave={updateAdmin} onClose={() => setShowAccount(false)} />

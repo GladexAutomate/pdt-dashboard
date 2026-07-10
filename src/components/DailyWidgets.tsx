@@ -17,7 +17,8 @@ export function DailyWidgets({ data }: { data: AppData }) {
   const recent = buildDayTimeline(all).slice(-6).reverse();
   const teamSummary = (["Domestic", "International"] as Team[]).map((team) => {
     const ids = new Set(data.agents.filter((a) => a.team === team).map((a) => a.id));
-    const ts = all.filter((d) => d.agentId != null && ids.has(d.agentId));
+    const names = new Set(data.agents.filter((a) => a.team === team).map((a) => a.name));
+    const ts = all.filter((d) => (DONEISH(d.status) && d.completedBy ? names.has(d.completedBy) : (d.agentId != null && ids.has(d.agentId))));
     return { team, done: ts.filter((d) => DONEISH(d.status)).length, total: ts.length };
   });
   const tiles: [string, string | number, string][] = [

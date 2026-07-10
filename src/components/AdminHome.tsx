@@ -1,18 +1,19 @@
 import { useMemo } from "react";
 import { MapPin, Globe, ChevronRight, Package, Activity } from "lucide-react";
 import { C, card, catC, teamColor } from "../lib/theme";
-import { groupStats, speedLabel, pct, relTime } from "../lib/helpers";
+import { groupStats, speedLabel, pct, relTime, myWorkPool } from "../lib/helpers";
 import { Chip, BoardTile } from "./ui";
 import type { AppData, GroupStats } from "../lib/types";
 import { DailyWidgets } from "./DailyWidgets";
 
 /* ---------------- Admin Home (signature status board) ---------------- */
 export function AdminHome({ data, go }: { data: AppData; go: (team: string) => void }) {
-  const all = useMemo(() => groupStats(data.agents, data.tasks), [data]);
-  const dom = useMemo(() => groupStats(data.agents.filter((a) => a.team === "Domestic"), data.tasks), [data]);
-  const intl = useMemo(() => groupStats(data.agents.filter((a) => a.team === "International"), data.tasks), [data]);
+  const pool = useMemo(() => myWorkPool(data), [data]);
+  const all = useMemo(() => groupStats(data.agents, pool), [data, pool]);
+  const dom = useMemo(() => groupStats(data.agents.filter((a) => a.team === "Domestic"), pool), [data, pool]);
+  const intl = useMemo(() => groupStats(data.agents.filter((a) => a.team === "International"), pool), [data, pool]);
   const byCat = data.categories.map((c) => {
-    const ts = data.tasks.filter((t) => t.category === c.name);
+    const ts = pool.filter((t) => t.category === c.name);
     return { cat: c.name, made: ts.filter((t) => t.status === "completed" || t.status === "published").length, published: ts.filter((t) => t.status === "published").length, total: ts.length };
   });
   const maxCat = Math.max(1, ...byCat.map((x) => x.total));

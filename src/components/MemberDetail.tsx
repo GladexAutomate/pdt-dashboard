@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { C, card, catC, teamColor, inputStyle } from "../lib/theme";
 import { PRIORITIES, PRIORITY_META, STATUS_META, STATUS_ORDER, DEAD, DONEISH, H } from "../lib/constants";
-import { agentStats, speedLabel, pct, actualHrs, speedRatio, dueMeta, fmtDay, fromDateInput, flattenRecords } from "../lib/helpers";
+import { agentStats, speedLabel, pct, actualHrs, speedRatio, dueMeta, fmtDay, fromDateInput, myWorkPool } from "../lib/helpers";
 import { Avatar, Chip, Btn, Field, MiniStat, ProgressBar, StatusSelect } from "./ui";
 import type { Agent, AppData, TaskRecord, Status, Priority, ColKey, Category } from "../lib/types";
 
@@ -38,10 +38,13 @@ interface MemberDetailProps {
 export function MemberDetail({ agent, data, onBack, addRec, completeRec, deleteRec, setRecStatus, openDetail, isAdmin, selfView }: MemberDetailProps) {
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<string | null>(null); // task id
-  const pool = useMemo(() => flattenRecords(data).filter((r) => r._col === "tasks" || r._col === "daily"), [data]);
+  const pool = useMemo(() => myWorkPool(data), [data]);
   const s = useMemo(() => agentStats(agent, pool), [pool, agent]);
   const sp = speedLabel(s.avgSpeed);
-  const tasks = pool.filter((t) => t.agentId === agent.id);
+  // matches agentStats' credit rule: finished work stays on the list of
+  // whoever finished it, not whoever currently holds the task, so the card
+  // is still there for them to review even after a reassignment.
+  const tasks = pool.filter((t) => (DONEISH(t.status) && t.completedBy ? t.completedBy === agent.name : t.agentId === agent.id));
   const special = tasks.filter((t) => t.special && !DEAD(t.status));
   const sorted = [...tasks].sort((a, b) => (STATUS_ORDER[a.status] - STATUS_ORDER[b.status]) || ((a.dueDate || Infinity) - (b.dueDate || Infinity)));
 
