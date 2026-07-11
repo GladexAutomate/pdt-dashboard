@@ -5,10 +5,10 @@ import {
   ArrowRightLeft, Activity, History, GitBranch, Users
 } from "lucide-react";
 import { C, inputStyle, dateInputStyle, lbl, selStyleBtn, catC } from "../lib/theme";
-import { STATUS_META, PRIORITY_META, PRIORITIES, DONEISH } from "../lib/constants";
-import { relTime, fmtDay, toDateInput, fromDateInput, dueMeta, normUrl, resizeImage, readFileDataUrl } from "../lib/helpers";
+import { STATUS_META, PRIORITY_META, PRIORITIES, DONEISH, TRACKERS } from "../lib/constants";
+import { relTime, fmtDay, toDateInput, fromDateInput, dueMeta, normUrl, resizeImage, readFileDataUrl, trackerColForCategory } from "../lib/helpers";
 import { Chip, Btn, ProgressBar, StatusSelect, PrioritySelect, AssigneeSelect, DetailSection, EditableArea } from "./ui";
-import type { TaskRecord, AppData, Actor, Status, Priority, ProofItem, CommentEntry, ActivityEntry, LinkItem } from "../lib/types";
+import type { TaskRecord, AppData, Actor, Status, Priority, ProofItem, CommentEntry, ActivityEntry, LinkItem, ColKey } from "../lib/types";
 
 type TimelineItem = (CommentEntry & { kind: "comment" }) | (ActivityEntry & { kind: "event" });
 
@@ -36,10 +36,11 @@ interface TaskDetailProps {
   appendLink: (id: string, link: LinkItem) => void;
   deleteTask: (id: string) => void;
   createFollowUp: (input: FollowUpInput) => void;
+  onGoToTracker?: (col: ColKey) => void;
 }
 
 /* ---------------- Task detail drawer ---------------- */
-export function TaskDetail({ task, data, actor, isAdmin, canEdit, onClose, updateTask, setStatus, reassignTask, addComment, pushActivity, appendProof, appendLink, deleteTask, createFollowUp }: TaskDetailProps) {
+export function TaskDetail({ task, data, actor, canEdit, onClose, updateTask, setStatus, reassignTask, addComment, pushActivity, appendProof, appendLink, deleteTask, createFollowUp, onGoToTracker }: TaskDetailProps) {
   const t = task;
   const [proof, setProof] = useState<ProofItem[]>(task.proof || []);
   const [err, setErr] = useState("");
@@ -146,6 +147,25 @@ export function TaskDetail({ task, data, actor, isAdmin, canEdit, onClose, updat
         <div style={{ padding: "4px 18px 18px" }}>
           {/* control grid */}
           <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", paddingTop: 14 }}>
+            <div><div style={lbl}>Category</div>
+              {canEdit ? (
+                <select value={t.category || ""} onChange={(e) => updateTask(t.id, { category: e.target.value })} style={inputStyle}>
+                  <option value="">—</option>
+                  {data.categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+                </select>
+              ) : t.category ? (
+                <div className="flex items-center gap-1.5" style={{ paddingTop: 5 }}>
+                  <span style={{ width: 9, height: 9, borderRadius: 3, background: catC(t.category, data.categories) }} />
+                  <span style={{ fontSize: 13, fontWeight: 600, color: catC(t.category, data.categories) }}>{t.category}</span>
+                </div>
+              ) : <span style={{ fontSize: 13, color: C.sub, paddingTop: 5, display: "block" }}>—</span>}
+              {onGoToTracker && trackerColForCategory(t.category) && (
+                <button onClick={() => onGoToTracker(trackerColForCategory(t.category)!)}
+                  className="flex items-center gap-1" style={{ marginTop: 5, background: "transparent", border: "none", cursor: "pointer", padding: 0, fontSize: 11.5, fontWeight: 700, color: C.international }}>
+                  <ExternalLink size={11} /> Open in {TRACKERS[trackerColForCategory(t.category)!].label}
+                </button>
+              )}
+            </div>
             <div><div style={lbl}>Status</div>{canEdit ? <StatusSelect value={t.status} onChange={(s) => setStatus(t.id, s)} /> : <Chip color={STATUS_META[t.status].c} soft={STATUS_META[t.status].soft}>{STATUS_META[t.status].txt}</Chip>}</div>
             <div><div style={lbl}>Priority</div>{canEdit ? <PrioritySelect value={t.priority || "medium"} onChange={(p) => { updateTask(t.id, { priority: p }); }} /> : <Chip color={pm.c} soft={pm.soft}>{pm.txt}</Chip>}</div>
             <div><div style={lbl}>Assignee {canEdit && <span style={{ color: C.sub, fontWeight: 400 }}>· reassign / handover</span>}</div>
@@ -305,9 +325,9 @@ export function TaskDetail({ task, data, actor, isAdmin, canEdit, onClose, updat
             </DetailSection>
           )}
 
-          {isAdmin && (
+          {canEdit && (
             <div className="flex justify-end" style={{ borderTop: `1px solid ${C.line}`, paddingTop: 14 }}>
-              <Btn sm kind="danger" icon={<Trash2 size={13} />} onClick={() => deleteTask(t.id)}>Delete task</Btn>
+              <Btn sm kind="danger" icon={<Trash2 size={13} />} onClick={() => { if (window.confirm(`Delete "${t.title}"? This can't be undone.`)) deleteTask(t.id); }}>Delete task</Btn>
             </div>
           )}
         </div>

@@ -6,7 +6,7 @@ import {
 import { C } from "./lib/theme";
 import { TRACKERS, DONEISH, H, STATUS_META } from "./lib/constants";
 import { flattenRecords } from "./lib/helpers";
-import { fetchAppData, insertRecord, updateRecordRow, deleteRecordRow, insertLog, upsertReport, setKpiProgressRow, insertKpiDefRow, updateKpiDefRow, deleteKpiDefRow, subscribeToChanges, createAgent, updateAgentRow, deleteAgentRow, updateAdminRow, insertCategoryRow, updateCategoryRow, deleteCategoryRow, setAgentAdmin, setAgentActive, appendComment, appendActivity, appendProof, appendLink } from "./lib/api";
+import { fetchAppData, insertRecord, updateRecordRow, deleteRecordRow, insertLog, upsertReport, insertKpiDefRow, updateKpiDefRow, deleteKpiDefRow, subscribeToChanges, createAgent, updateAgentRow, deleteAgentRow, updateAdminRow, insertCategoryRow, updateCategoryRow, deleteCategoryRow, setAgentAdmin, setAgentActive, appendComment, appendActivity, appendProof, appendLink } from "./lib/api";
 import type {
   AppData, TaskRecord, Status, Team, ColKey, LogEntry, ReportState, Session,
   LoginResult, DetailTarget, Agent, ActivityEntry, CommentEntry, KpiDef, Category, Priority, ProofItem, LinkItem
@@ -245,17 +245,10 @@ export default function App() {
   const approveReport = (key: string) => { setReport(key, { status: "locked", approvedAt: Date.now(), approvedBy: actor().name }); log({ userId: actor().id, name: actor().name, role: actor().role, type: "status", detail: `Approved & locked report ${key}` }); };
   const reopenReport = (key: string) => { setReport(key, { status: "in_progress", approvedAt: null }); log({ userId: actor().id, name: actor().name, role: actor().role, type: "status", detail: `Reopened report ${key}` }); };
 
-  /* ---- monthly KPI accomplishments ---- */
-  const setKpiValue = (month: string, kkey: string, value: number) => {
-    const v = Math.max(0, isNaN(value) ? 0 : value);
-    persist((d) => {
-      const prog = { ...(d.kpi?.progress || {}) };
-      const m = { ...(prog[month] || {}) };
-      m[kkey] = v; prog[month] = m;
-      return { ...d, kpi: { ...(d.kpi || { defs: [] }), progress: prog } };
-    });
-    setKpiProgressRow(month, kkey, v).catch((e) => console.error("Failed to save KPI progress", e));
-  };
+  /* ---- monthly KPI accomplishments ----
+     "Current" is computed automatically from completed tickets (see
+     kpiCurrentCount in helpers.ts) — only the KPI definitions (task/target)
+     are ever written here. */
   const addKpiDef = (staffId: string, task: string, target: string) => {
     if (!task || !task.trim()) return;
     const id = "k" + Date.now() + Math.random().toString(36).slice(2, 5);
@@ -452,10 +445,14 @@ export default function App() {
 
   const font = "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
   const openTaskDetail = (id: string) => setDetail({ col: "tasks", id });
+  const goToTracker = (col: ColKey) => {
+    if (session?.role === "admin") setAdminTab(col); else setAgentTab(col);
+    setDetail(null);
+  };
   const trackerProps = (col: ColKey) => ({
     data, isAdmin: session?.role === "admin", meId: session?.agentId,
     addRec, updateRec, setRecStatus, reassignRec, deleteRec,
-    openDetail: (id: string) => setDetail({ col, id })
+    openDetail: (id: string, recCol?: ColKey) => setDetail({ col: recCol || col, id })
   });
   const detailRec = detail ? (data[detail.col] || []).find((r) => r.id === detail.id) : null;
   const reassignedForMe = flattenRecords(data).filter((t) => (t.activity || []).some((a) => a.type === "reassign") && (session?.role === "admin" || t.agentId === session?.agentId)).length;
@@ -483,7 +480,7 @@ export default function App() {
           {adminTab === "reassigned" && <ReassignedTasks data={data} isAdmin meId={session?.agentId} openDetail={(col, id) => setDetail({ col, id })} />}
           {adminTab === "users" && <UserManagement data={data} addAgent={addAgent} updateAgent={updateAgent} removeAgent={removeAgent} setAgentAdmin={setAgentAdminFlag} setAgentActive={setAgentActiveFlag} />}
           {adminTab === "categories" && <CategoryManagement categories={data.categories} addCategory={addCategory} updateCategory={updateCategory} removeCategory={removeCategory} />}
-          {adminTab === "kpi" && <KpiDashboard data={data} isAdmin setKpi={setKpiValue} addDef={addKpiDef} updateDef={updateKpiDef} removeDef={removeKpiDef} />}
+          {adminTab === "kpi" && <KpiDashboard data={data} isAdmin addDef={addKpiDef} updateDef={updateKpiDef} removeDef={removeKpiDef} />}
           {adminTab === "logs" && <Logs logs={data.logs} />}
           {adminTab === "premium" && <TrackerView col="premium" config={TRACKERS.premium} {...trackerProps("premium")} />}
           {adminTab === "gladex" && <TrackerView col="gladex" config={TRACKERS.gladex} {...trackerProps("gladex")} />}
@@ -505,7 +502,7 @@ export default function App() {
                 completeRec={completeRec} setRecStatus={setRecStatus} openDetail={(col, id) => setDetail({ col, id })} isAdmin={false} selfView />
             : agentTab === "daily" ? <DailyTasking {...trackerProps("daily")} isAdmin={false} />
             : agentTab === "reassigned" ? <ReassignedTasks data={data} isAdmin={false} meId={session.agentId} openDetail={(col, id) => setDetail({ col, id })} />
-            : agentTab === "kpi" ? <KpiDashboard data={data} isAdmin={false} setKpi={setKpiValue} />
+            : agentTab === "kpi" ? <KpiDashboard data={data} isAdmin={false} />
             : agentTab === "premium" ? <TrackerView col="premium" config={TRACKERS.premium} {...trackerProps("premium")} />
             : agentTab === "gladex" ? <TrackerView col="gladex" config={TRACKERS.gladex} {...trackerProps("gladex")} />
             : agentTab === "tariff" ? <TrackerView col="tariff" config={TRACKERS.tariff} {...trackerProps("tariff")} />
@@ -527,7 +524,8 @@ export default function App() {
           appendProof={(id, item) => addRecProof(detail.col, id, item)}
           appendLink={(id, link) => addRecLink(detail.col, id, link)}
           deleteTask={(id) => { deleteRec(detail.col, id); setDetail(null); }}
-          createFollowUp={(input) => createFollowUpTask(detail.col, detailRec.id, input)} />
+          createFollowUp={(input) => createFollowUpTask(detail.col, detailRec.id, input)}
+          onGoToTracker={goToTracker} />
       )}
       {showAccount && session?.role === "admin" && (
         <AdminAccount session={session} onSave={updateAdmin} onClose={() => setShowAccount(false)} />

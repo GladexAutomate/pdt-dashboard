@@ -49,6 +49,14 @@ export function flattenRecords(data: AppData): TaskRecord[] {
 export function myWorkPool(data: AppData): TaskRecord[] {
   return flattenRecords(data).filter((r) => r._col === "tasks" || r._col === "daily");
 }
+// lets a task's category (e.g. "Tariff's") relate it to the matching
+// tracker (PREMIUM/GLADEX/Tariff) by name — purely a text match, since a
+// category is just a free-text tag and isn't otherwise tied to a collection.
+export function trackerColForCategory(category: string | undefined): "premium" | "gladex" | "tariff" | null {
+  const norm = (category || "").toLowerCase().replace(/[^a-z]/g, "");
+  if (!norm) return null;
+  return (["premium", "gladex", "tariff"] as const).find((col) => norm === col || norm === col + "s") || null;
+}
 export function reassignCount(r: TaskRecord, y: number, m: number): number {
   return (r.activity || []).filter((a) => a.type === "reassign" && inMonth(a.ts, y, m)).length;
 }
@@ -173,3 +181,12 @@ export function kpiStatus(p: number): KpiStatusMeta {
 
 export function pdMonthKey(d: Date): string { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"); }
 export function pdMonthLabel(key: string): string { const [y, m] = key.split("-").map(Number); return new Date(y, m - 1, 1).toLocaleString("en-US", { month: "long", year: "numeric" }); }
+
+// KPI "Current" is computed automatically, never typed in: it's how many of
+// this person's completed/published tickets this month fall under this
+// category (across every tracker) — same completedBy-based credit rule as
+// agentStats/staffMonth, so a ticket only counts for whoever actually
+// finished it. A KPI's "task" is just a category name under the hood.
+export function kpiCurrentCount(records: TaskRecord[], agentName: string, category: string, y: number, m: number): number {
+  return records.filter((r) => r.category === category && DONEISH(r.status) && r.completedBy === agentName && inMonth(r.completedAt, y, m)).length;
+}

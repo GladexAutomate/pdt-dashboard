@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Plus, Search, MapPin } from "lucide-react";
 import { C, card, cellStyle, dateInputStyle, catC, teamColor, inputStyle } from "../lib/theme";
-import { DEPARTMENTS, DESTINATIONS, PRIORITIES, PRIORITY_META, STATUSES, STATUS_META, STATUS_ORDER, DONEISH, DEAD, COL_LABEL } from "../lib/constants";
-import { dueMeta, toDateInput, fromDateInput, fmtDay, relTime } from "../lib/helpers";
+import { DEPARTMENTS, DESTINATIONS, PRIORITIES, PRIORITY_META, STATUSES, STATUS_META, DONEISH, DEAD, COL_LABEL, COLLECTIONS } from "../lib/constants";
+import { dueMeta, toDateInput, fromDateInput, fmtDay, relTime, trackerColForCategory } from "../lib/helpers";
 import { Chip, Btn, Field, AssigneeSelect, PrioritySelect, StatusSelect, ProgressBar } from "./ui";
 import type { ColKey, TrackerConfig, AppData, Agent, TaskRecord, Status, Category } from "../lib/types";
 
@@ -43,8 +43,10 @@ interface TrackerViewProps {
   setRecStatus: (col: ColKey, id: string, status: Status) => void;
   reassignRec: (col: ColKey, id: string, agentId: string) => void;
   deleteRec?: (col: ColKey, id: string) => void;
-  openDetail: (id: string) => void;
+  openDetail: (id: string, col?: ColKey) => void;
 }
+
+const COLLECTION_LABEL: Record<ColKey, string> = { tasks: "Tasks", premium: "PREMIUM", gladex: "GLADEX", tariff: "Tariff", daily: "Daily Tasking" };
 
 export function TrackerView({ col, config, data, isAdmin, meId, addRec, updateRec, setRecStatus, reassignRec, openDetail }: TrackerViewProps) {
   const [search, setSearch] = useState("");
@@ -55,7 +57,16 @@ export function TrackerView({ col, config, data, isAdmin, meId, addRec, updateRe
   const [fDest, setFDest] = useState("all");
   const [showAdd, setShowAdd] = useState(false);
 
-  const records = data[col] || [];
+  // this tracker's own records, plus anything from OTHER collections whose
+  // category names this tracker (e.g. a daily task tagged "Tariff's") — so a
+  // ticket someone created elsewhere still shows up here without having to
+  // exist twice. Actions on a related row are routed back to its real
+  // collection (r._col), not this tracker's, since that's where it lives.
+  const own = (data[col] || []).map((r) => ({ ...r, _col: col }));
+  const related = COLLECTIONS.filter((c) => c !== col).flatMap((c) =>
+    (data[c] || []).filter((r) => trackerColForCategory(r.category) === col).map((r) => ({ ...r, _col: c }))
+  );
+  const records = [...own, ...related];
   const agentName = (id: string | null | undefined) => data.agents.find((a) => a.id === id)?.name || "Unassigned";
   const dests = [...new Set(records.map((r) => r.destination).filter(Boolean))];
   const canEditRow = (r: TaskRecord) => isAdmin || r.agentId === meId;
@@ -73,7 +84,10 @@ export function TrackerView({ col, config, data, isAdmin, meId, addRec, updateRe
     }
     return true;
   });
-  const sorted = [...filtered].sort((a, b) => (STATUS_ORDER[a.status] - STATUS_ORDER[b.status]) || ((a.dueDate || Infinity) - (b.dueDate || Infinity)));
+  // most recently added/touched first, so whatever just landed here (like a
+  // related ticket from another collection) is right at the top instead of
+  // buried inside its status group.
+  const sorted = [...filtered].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   const selStyle = { border: `1px solid ${C.line}`, background: "#fff", borderRadius: 8, padding: "6px 9px", fontSize: 12.5, color: C.text, outline: "none", fontWeight: 600, cursor: "pointer" };
 
   const cell = (key: string, r: TaskRecord) => {
@@ -83,21 +97,24 @@ export function TrackerView({ col, config, data, isAdmin, meId, addRec, updateRe
       case "title": return (
         <div className="flex items-start gap-2" style={{ minWidth: 180 }}>
           <span style={{ marginTop: 4, width: 9, height: 9, borderRadius: 3, background: catC(r.category || r.department, data.categories), flexShrink: 0 }} />
-          <button onClick={() => openDetail(r.id)} style={{ fontWeight: 600, fontSize: 13, background: "transparent", border: "none", padding: 0, cursor: "pointer", color: C.text, textAlign: "left", textDecoration: r.status === "removed" ? "line-through" : "none" }}>{r.title}</button>
+          <div>
+            <button onClick={() => openDetail(r.id, r._col || col)} style={{ fontWeight: 600, fontSize: 13, background: "transparent", border: "none", padding: 0, cursor: "pointer", color: C.text, textAlign: "left", textDecoration: r.status === "removed" ? "line-through" : "none" }}>{r.title}</button>
+            {r._col && r._col !== col && <div style={{ fontSize: 10.5, color: C.sub, fontWeight: 600 }}>via {COLLECTION_LABEL[r._col]}</div>}
+          </div>
         </div>
       );
       case "category": return r.category ? <span style={{ fontSize: 12, color: catC(r.category, data.categories), fontWeight: 600 }}>{r.category}</span> : <span style={{ color: C.sub }}>—</span>;
       case "department": return <span style={{ fontSize: 12.5, fontWeight: 600 }}>{r.department || "—"}</span>;
       case "destination": return r.destination ? <Chip color={C.international} soft="#E7EDFB" icon={<MapPin size={10} />}>{r.destination}</Chip> : <span style={{ color: C.sub }}>—</span>;
-      case "assignee": return ce ? <AssigneeSelect value={r.agentId} agents={data.agents} onChange={(nid) => reassignRec(col, r.id, nid)} /> : <span style={{ fontSize: 12.5, fontWeight: 600 }}>{agentName(r.agentId)}</span>;
+      case "assignee": return ce ? <AssigneeSelect value={r.agentId} agents={data.agents} onChange={(nid) => reassignRec(r._col || col, r.id, nid)} /> : <span style={{ fontSize: 12.5, fontWeight: 600 }}>{agentName(r.agentId)}</span>;
       case "team": return <span style={{ fontSize: 12.5, color: teamColor(r.team), fontWeight: 600 }}>{r.team || "—"}</span>;
-      case "priority": return ce ? <PrioritySelect value={r.priority || "medium"} onChange={(p) => updateRec(col, r.id, { priority: p })} /> : <Chip color={PRIORITY_META[r.priority || "medium"].c} soft={PRIORITY_META[r.priority || "medium"].soft}>{PRIORITY_META[r.priority || "medium"].txt}</Chip>;
-      case "status": return ce ? <StatusSelect value={r.status} onChange={(s) => setRecStatus(col, r.id, s)} /> : <Chip color={STATUS_META[r.status].c} soft={STATUS_META[r.status].soft}>{STATUS_META[r.status].txt}</Chip>;
+      case "priority": return ce ? <PrioritySelect value={r.priority || "medium"} onChange={(p) => updateRec(r._col || col, r.id, { priority: p })} /> : <Chip color={PRIORITY_META[r.priority || "medium"].c} soft={PRIORITY_META[r.priority || "medium"].soft}>{PRIORITY_META[r.priority || "medium"].txt}</Chip>;
+      case "status": return ce ? <StatusSelect value={r.status} onChange={(s) => setRecStatus(r._col || col, r.id, s)} /> : <Chip color={STATUS_META[r.status].c} soft={STATUS_META[r.status].soft}>{STATUS_META[r.status].txt}</Chip>;
       case "progress": return <div className="flex items-center gap-2" style={{ minWidth: 110 }}><ProgressBar value={r.progress || 0} /><span style={{ fontSize: 11.5, color: C.sub, fontWeight: 600 }}>{r.progress || 0}%</span></div>;
-      case "start": return ce ? <input type="date" value={toDateInput(r.startDate)} onChange={(e) => updateRec(col, r.id, { startDate: fromDateInput(e.target.value) })} style={dateInputStyle} /> : <span style={{ fontSize: 12.5 }}>{fmtDay(r.startDate)}</span>;
+      case "start": return ce ? <input type="date" value={toDateInput(r.startDate)} onChange={(e) => updateRec(r._col || col, r.id, { startDate: fromDateInput(e.target.value) })} style={dateInputStyle} /> : <span style={{ fontSize: 12.5 }}>{fmtDay(r.startDate)}</span>;
       case "due": return (
         <div>
-          {ce ? <input type="date" value={toDateInput(r.dueDate)} onChange={(e) => updateRec(col, r.id, { dueDate: fromDateInput(e.target.value) })} style={dateInputStyle} /> : <span style={{ fontSize: 12.5 }}>{fmtDay(r.dueDate)}</span>}
+          {ce ? <input type="date" value={toDateInput(r.dueDate)} onChange={(e) => updateRec(r._col || col, r.id, { dueDate: fromDateInput(e.target.value) })} style={dateInputStyle} /> : <span style={{ fontSize: 12.5 }}>{fmtDay(r.dueDate)}</span>}
           {dm && dm.label && <div style={{ fontSize: 11, color: dm.c, fontWeight: 600, marginTop: 3 }}>{dm.label}</div>}
         </div>
       );

@@ -34,13 +34,17 @@ export function DailyTasking({ data, isAdmin, meId, addRec, setRecStatus, delete
 
   const scope = isAdmin ? data.agents : data.agents.filter((a) => a.id === meId);
   const shown = isAdmin && staffF !== "all" ? scope.filter((a) => a.id === staffF) : scope;
-  // matches the same credit rule as agentStats/staffMonth: finished work
-  // stays with whoever finished it, so it still shows on their EOD even
-  // after the task gets reassigned to someone else.
+  // matches the same credit rule as agentStats/staffMonth: once a task is
+  // done, it belongs only to whoever actually finished it (completedBy) —
+  // collaborators only widen who sees/counts a task while it's still active,
+  // so someone added as a collaborator after the fact (or who never touched
+  // it before it got finished) doesn't inherit someone else's completed work
+  // or hours on their own EOD.
   const dailyFor = (agent: Agent) => (data.daily || []).filter((d) =>
     toDateInput(d.dueDate) === date && (
-      (d.collaboratorIds || []).includes(agent.id) ||
-      (DONEISH(d.status) && d.completedBy ? d.completedBy === agent.name : d.agentId === agent.id)
+      DONEISH(d.status) && d.completedBy
+        ? d.completedBy === agent.name
+        : d.agentId === agent.id || (d.collaboratorIds || []).includes(agent.id)
     )
   );
 
@@ -155,8 +159,8 @@ function DailyStaffCard({ staff, tasks, date, categories, canEdit, isAdmin, onSt
 }) {
   const [showEod, setShowEod] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
-  const timeline = buildDayTimeline(tasks);
-  const eod = eodOf(tasks);
+  const timeline = buildDayTimeline(tasks, date);
+  const eod = eodOf(tasks, date);
   const doneCount = tasks.filter((t) => DONEISH(t.status)).length;
 
   return (
@@ -264,8 +268,9 @@ function TeamDailyReport({ data, date }: { data: AppData; date: string }) {
     const members = data.agents.filter((a) => a.team === team).map((a) => {
       const ts = (data.daily || []).filter((d) =>
         toDateInput(d.dueDate) === date && (
-          (d.collaboratorIds || []).includes(a.id) ||
-          (DONEISH(d.status) && d.completedBy ? d.completedBy === a.name : d.agentId === a.id)
+          DONEISH(d.status) && d.completedBy
+            ? d.completedBy === a.name
+            : d.agentId === a.id || (d.collaboratorIds || []).includes(a.id)
         )
       );
       return { name: a.name, titles: ts.filter((d) => DONEISH(d.status)).map((d) => d.title) };

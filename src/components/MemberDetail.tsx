@@ -2,10 +2,10 @@ import { useState, useMemo } from "react";
 import {
   ArrowLeft, Plus, Target, Package, Send, Gauge, ShieldCheck, AlertTriangle, Sparkles,
   Play, Pause, CheckCircle2, Trash2, Clock, CalendarCheck, MessageSquare, Link2, Paperclip, Flag, FileText,
-  MapPin, Globe
+  MapPin, Globe, Search, ChevronLeft, ChevronRight
 } from "lucide-react";
 import { C, card, catC, teamColor, inputStyle } from "../lib/theme";
-import { PRIORITIES, PRIORITY_META, STATUS_META, STATUS_ORDER, DEAD, DONEISH, H } from "../lib/constants";
+import { PRIORITIES, PRIORITY_META, STATUS_META, DEAD, DONEISH, H } from "../lib/constants";
 import { agentStats, speedLabel, pct, actualHrs, speedRatio, dueMeta, fmtDay, fromDateInput, myWorkPool } from "../lib/helpers";
 import { Avatar, Chip, Btn, Field, MiniStat, ProgressBar, StatusSelect } from "./ui";
 import type { Agent, AppData, TaskRecord, Status, Priority, ColKey, Category } from "../lib/types";
@@ -35,21 +35,35 @@ interface MemberDetailProps {
    just TaskRecords, distinguished by _col (stamped by flattenRecords), so
    each row's actions route back to its own collection ("tasks" or "daily").
    PREMIUM/GLADEX/Tariff stay out of this view — they have their own tabs. */
+const TASK_PAGE_SIZE = 10;
+
 export function MemberDetail({ agent, data, onBack, addRec, completeRec, deleteRec, setRecStatus, openDetail, isAdmin, selfView }: MemberDetailProps) {
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<string | null>(null); // task id
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(0);
   const pool = useMemo(() => myWorkPool(data), [data]);
   const s = useMemo(() => agentStats(agent, pool), [pool, agent]);
   const sp = speedLabel(s.avgSpeed);
-  // matches agentStats' credit rule: finished work stays on the list of
-  // whoever finished it, not whoever currently holds the task, so the card
-  // is still there for them to review even after a reassignment.
+  // matches agentStats' credit rule: once a task is done, it belongs only to
+  // whoever actually finished it (completedBy) — collaborators only widen
+  // who sees a task while it's still active, so being added as a
+  // collaborator after the fact (or on someone else's already-finished
+  // ticket) doesn't retroactively show their completed work as yours.
   const tasks = pool.filter((t) =>
-    (t.collaboratorIds || []).includes(agent.id) ||
-    (DONEISH(t.status) && t.completedBy ? t.completedBy === agent.name : t.agentId === agent.id)
+    DONEISH(t.status) && t.completedBy
+      ? t.completedBy === agent.name
+      : t.agentId === agent.id || (t.collaboratorIds || []).includes(agent.id)
   );
   const special = tasks.filter((t) => t.special && !DEAD(t.status));
-  const sorted = [...tasks].sort((a, b) => (STATUS_ORDER[a.status] - STATUS_ORDER[b.status]) || ((a.dueDate || Infinity) - (b.dueDate || Infinity)));
+  // most recently added/touched first, so whatever you just worked on (or
+  // just got assigned) is right at the top instead of buried by status.
+  const sorted = [...tasks].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  const q = search.trim().toLowerCase();
+  const searched = q ? sorted.filter((t) => [t.title, t.category, t.status, t.target].join(" ").toLowerCase().includes(q)) : sorted;
+  const pageCount = Math.max(1, Math.ceil(searched.length / TASK_PAGE_SIZE));
+  const clampedPage = Math.min(page, pageCount - 1);
+  const shown = searched.slice(clampedPage * TASK_PAGE_SIZE, clampedPage * TASK_PAGE_SIZE + TASK_PAGE_SIZE);
 
   return (
     <div>
@@ -96,13 +110,18 @@ export function MemberDetail({ agent, data, onBack, addRec, completeRec, deleteR
       )}
 
       {/* task list */}
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
         <span style={{ fontWeight: 700, fontSize: 15 }}>Tasking & targets</span>
         <span style={{ fontSize: 12.5, color: C.sub }}>{tasks.length} task{tasks.length !== 1 ? "s" : ""}</span>
       </div>
+      <div className="flex items-center gap-1.5 mb-3" style={{ ...inputStyle, padding: "7px 10px", maxWidth: 320 }}>
+        <Search size={14} color={C.sub} />
+        <input value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} placeholder="Search title, category, status…"
+          style={{ border: "none", outline: "none", fontSize: 13, width: "100%", background: "transparent", color: C.text }} />
+      </div>
       <div className="space-y-2.5">
-        {sorted.length === 0 && <div style={{ ...card, padding: 18, color: C.sub, fontSize: 13.5 }}>No tasks assigned yet.</div>}
-        {sorted.map((t) => {
+        {searched.length === 0 && <div style={{ ...card, padding: 18, color: C.sub, fontSize: 13.5 }}>{tasks.length === 0 ? "No tasks assigned yet." : "No tasks match your search."}</div>}
+        {shown.map((t) => {
           const col = t._col || "tasks";
           return (
             <TaskRow key={t.id} t={t} isAdmin={isAdmin} selfView={selfView} categories={data.categories}
@@ -114,6 +133,19 @@ export function MemberDetail({ agent, data, onBack, addRec, completeRec, deleteR
           );
         })}
       </div>
+      {searched.length > 0 && (
+        <div className="flex items-center justify-between mt-3" style={{ paddingTop: 10, borderTop: `1px solid ${C.line}` }}>
+          <button onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={clampedPage === 0} className="flex items-center gap-1"
+            style={{ fontSize: 12.5, fontWeight: 600, color: C.text, background: "transparent", border: "none", cursor: clampedPage === 0 ? "default" : "pointer", opacity: clampedPage === 0 ? 0.4 : 1 }}>
+            <ChevronLeft size={14} /> Prev
+          </button>
+          <span style={{ fontSize: 12, color: C.sub }}>Page {clampedPage + 1} of {pageCount}</span>
+          <button onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))} disabled={clampedPage >= pageCount - 1} className="flex items-center gap-1"
+            style={{ fontSize: 12.5, fontWeight: 600, color: C.text, background: "transparent", border: "none", cursor: clampedPage >= pageCount - 1 ? "default" : "pointer", opacity: clampedPage >= pageCount - 1 ? 0.4 : 1 }}>
+            Next <ChevronRight size={14} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

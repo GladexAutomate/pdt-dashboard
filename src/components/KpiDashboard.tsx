@@ -2,9 +2,9 @@ import { useState, useMemo, type CSSProperties, type ReactNode } from "react";
 import { Target, Sparkles, CalendarCheck, Filter, Gauge, Globe, MapPin, Trash2, Plus } from "lucide-react";
 import { C, card, kpiSelect, teamColor } from "../lib/theme";
 import { KPI_STAFF, type KpiStaffEntry } from "../lib/constants";
-import { sum, kpiStatus, pdMonthKey, pdMonthLabel } from "../lib/helpers";
+import { sum, kpiStatus, pdMonthKey, pdMonthLabel, flattenRecords, kpiCurrentCount } from "../lib/helpers";
 import { Chip, Btn } from "./ui";
-import type { AppData, Team, KpiStatusMeta } from "../lib/types";
+import type { AppData, Team, KpiStatusMeta, Category } from "../lib/types";
 
 const th: CSSProperties = { textAlign: "left", fontSize: 10.5, letterSpacing: 0.4, textTransform: "uppercase", color: C.sub, fontWeight: 700, padding: "8px 10px", whiteSpace: "nowrap" };
 const td: CSSProperties = { fontSize: 13, color: C.text, padding: "9px 10px", borderTop: `1px solid ${C.line}`, verticalAlign: "middle" };
@@ -32,18 +32,20 @@ interface TeamSum {
   status: KpiStatusMeta;
 }
 
-function AddKpiRow({ staffId, onAdd }: { staffId: string; onAdd: (staffId: string, task: string, target: string) => void }) {
-  const [task, setTask] = useState("");
+function AddKpiRow({ staffId, categories, onAdd }: { staffId: string; categories: Category[]; onAdd: (staffId: string, task: string, target: string) => void }) {
+  const [task, setTask] = useState(categories[0]?.name || "");
   const [target, setTarget] = useState("");
   const ok = task.trim().length > 1 && parseInt(target, 10) > 0;
   return (
     <div className="flex items-center gap-2 flex-wrap" style={{ padding: "10px 12px", borderTop: `1px dashed ${C.line}`, background: C.paper }}>
       <Plus size={14} color={C.teal} />
-      <input value={task} onChange={(e) => setTask(e.target.value)} placeholder="New KPI / task name"
-        style={{ flex: 1, minWidth: 160, border: `1px solid ${C.line}`, borderRadius: 8, padding: "6px 9px", fontSize: 13, outline: "none" }} />
+      <select value={task} onChange={(e) => setTask(e.target.value)}
+        style={{ flex: 1, minWidth: 160, border: `1px solid ${C.line}`, borderRadius: 8, padding: "6px 9px", fontSize: 13, outline: "none", background: "#fff" }}>
+        {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+      </select>
       <input type="number" min="1" value={target} onChange={(e) => setTarget(e.target.value)} placeholder="Target"
         style={{ width: 84, border: `1px solid ${C.line}`, borderRadius: 8, padding: "6px 9px", fontSize: 13, outline: "none" }} />
-      <Btn sm kind="teal" disabled={!ok} onClick={() => { onAdd(staffId, task, target); setTask(""); setTarget(""); }} icon={<Plus size={13} />}>Add KPI</Btn>
+      <Btn sm kind="teal" disabled={!ok} onClick={() => { onAdd(staffId, task, target); setTarget(""); }} icon={<Plus size={13} />}>Add KPI</Btn>
     </div>
   );
 }
@@ -51,31 +53,36 @@ function AddKpiRow({ staffId, onAdd }: { staffId: string; onAdd: (staffId: strin
 interface KpiDashboardProps {
   data: AppData;
   isAdmin: boolean;
-  setKpi: (month: string, kkey: string, value: number) => void;
   addDef?: (staffId: string, task: string, target: string) => void;
   updateDef?: (id: string, patch: { target: number }) => void;
   removeDef?: (id: string) => void;
 }
 
-export function KpiDashboard({ data, isAdmin, setKpi, addDef, updateDef, removeDef }: KpiDashboardProps) {
+export function KpiDashboard({ data, isAdmin, addDef, updateDef, removeDef }: KpiDashboardProps) {
   const defs = data.kpi?.defs || [];
+  const allRecords = useMemo(() => flattenRecords(data), [data]);
+  // month picker options come from when work actually got completed, not
+  // manually-entered progress — there's no manual entry left to key off.
   const months = useMemo(() => {
-    const keys = Object.keys(data.kpi?.progress || {});
-    const cur = pdMonthKey(new Date());
-    if (!keys.includes(cur)) keys.push(cur);
-    return keys.sort().reverse();
-  }, [data.kpi]);
+    const keys = new Set<string>();
+    allRecords.forEach((r) => { if (r.completedAt) keys.add(pdMonthKey(new Date(r.completedAt))); });
+    keys.add(pdMonthKey(new Date()));
+    return [...keys].sort().reverse();
+  }, [allRecords]);
   const [month, setMonth] = useState(months[0] || pdMonthKey(new Date()));
   const [team, setTeam] = useState<Team | "All">("All");
   const [staffF, setStaffF] = useState("All");
   const [taskF, setTaskF] = useState("All");
   const [manage, setManage] = useState(false);
 
-  const getCur = (id: string): number => (data.kpi?.progress?.[month]?.[id] ?? 0);
+  const [y, mo] = month.split("-").map(Number);
 
+  // Current is always computed, never typed in — a KPI's "task" is a
+  // category name, and Current = how many of that person's completed
+  // tickets this month carry that category (see kpiCurrentCount).
   const staffRows: StaffRow[] = useMemo(() => KPI_STAFF.map((s) => {
     const kpis: KpiRow[] = defs.filter((d) => d.staffId === s.id).map((d) => {
-      const current = getCur(d.id);
+      const current = kpiCurrentCount(allRecords, s.name, d.task, y, mo - 1);
       const remaining = Math.max(d.target - current, 0);
       const p = d.target ? (current / d.target) * 100 : 0;
       return { id: d.id, task: d.task, target: d.target, current, remaining, pct: p, status: kpiStatus(p) };
@@ -84,7 +91,7 @@ export function KpiDashboard({ data, isAdmin, setKpi, addDef, updateDef, removeD
     const tCur = sum(kpis.map((k) => k.current));
     const p = tTarget ? (tCur / tTarget) * 100 : 0;
     return { ...s, kpis, tTarget, tCur, pct: p, status: kpiStatus(p) };
-  }), [data.kpi, month]);
+  }), [defs, allRecords, y, mo]);
 
   const teamSum = (t: Team): TeamSum => {
     const st = staffRows.filter((s) => s.team === t);
@@ -128,7 +135,7 @@ export function KpiDashboard({ data, isAdmin, setKpi, addDef, updateDef, removeD
 
       {manage && isAdmin && (
         <div style={{ ...card, padding: "10px 14px", borderColor: C.teal, background: C.tealSoft, fontSize: 12.5, color: C.ink }}>
-          <b>Manage mode.</b> Add a KPI at the bottom of any staff card, edit a target inline, or remove a KPI with the trash icon. Changes save automatically. Staff always see this tab as view-only.
+          <b>Manage mode.</b> Add a KPI (picking the category it tracks) at the bottom of any staff card, edit its target inline, or remove one with the trash icon. "Current" is never typed in — it's counted automatically from that person's completed tickets in that category this month. Staff always see this tab as view-only.
         </div>
       )}
 
@@ -270,13 +277,7 @@ export function KpiDashboard({ data, isAdmin, setKpi, addDef, updateDef, removeD
                             style={{ width: 54, textAlign: "center", border: `1px solid ${C.amber}`, borderRadius: 8, padding: "5px 6px", fontSize: 13, fontWeight: 700, color: C.text, outline: "none" }} />
                         ) : <span style={{ fontVariantNumeric: "tabular-nums" }}>{k.target}</span>}
                       </td>
-                      <td style={{ ...td, textAlign: "center" }}>
-                        {isAdmin ? (
-                          <input type="number" min="0" value={k.current}
-                            onChange={(e) => setKpi(month, k.id, parseInt(e.target.value, 10))}
-                            style={{ width: 58, textAlign: "center", border: `1px solid ${C.line}`, borderRadius: 8, padding: "5px 6px", fontSize: 13, fontWeight: 700, color: C.text, outline: "none" }} />
-                        ) : <span style={{ fontWeight: 700 }}>{k.current}</span>}
-                      </td>
+                      <td style={{ ...td, textAlign: "center" }}><span style={{ fontWeight: 700 }}>{k.current}</span></td>
                       <td style={{ ...td, textAlign: "center", fontVariantNumeric: "tabular-nums", color: k.remaining === 0 ? C.teal : C.text, fontWeight: 600 }}>{k.remaining}</td>
                       <td style={td}>
                         <div className="flex items-center gap-2">
@@ -300,7 +301,7 @@ export function KpiDashboard({ data, isAdmin, setKpi, addDef, updateDef, removeD
                 </tbody>
               </table>
             </div>
-            {manage && isAdmin && <AddKpiRow staffId={s.id} onAdd={(sid, task, target) => addDef?.(sid, task, target)} />}
+            {manage && isAdmin && <AddKpiRow staffId={s.id} categories={data.categories} onAdd={(sid, task, target) => addDef?.(sid, task, target)} />}
           </div>
         );
       })}
