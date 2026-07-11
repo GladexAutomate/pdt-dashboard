@@ -69,7 +69,11 @@ export function Teams({ data, selTeam, setSelTeam, openMember, setStatus, update
         </div>
       </div>
       {view === "members" ? (
-        <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))" }}>
+        <div>
+          <div style={{ fontSize: 11.5, color: C.sub, marginBottom: 10 }}>
+            Speed and Accuracy only come from tasks completed via <b>"Record completion" / "Publish"</b> (hours + item/error counts entered at that step) — a task finished by just changing its status directly won't count toward these, so a member can show — even with published work.
+          </div>
+          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))" }}>
           {members.map((a) => {
             const s = agentStats(a, pool);
             const sp = speedLabel(s.avgSpeed);
@@ -88,12 +92,13 @@ export function Teams({ data, selTeam, setSelTeam, openMember, setStatus, update
                 <div className="flex justify-between" style={{ borderTop: `1px solid ${C.line}`, paddingTop: 10 }}>
                   <Stat label="Tasks" value={s.mine.length} />
                   <Stat label="Published" value={s.published.length} />
-                  <Stat label="Speed" value={sp.txt} color={sp.c} />
-                  <Stat label="Accuracy" value={pct(s.accuracy)} color={C.teal} />
+                  <Stat label="Speed" value={sp.txt} color={sp.c} info="Estimated ÷ actual hours from tasks completed via 'Record completion' / 'Publish'. — until at least one task has been completed that way." />
+                  <Stat label="Accuracy" value={pct(s.accuracy)} color={C.teal} info="(1 − errors ÷ items) from item/error counts entered on 'Record completion'. — until an item count has been entered." />
                 </div>
               </div>
             );
           })}
+          </div>
         </div>
       ) : (
         <TeamTable team={selTeam} members={members} allAgents={data.agents} tasks={teamTasks} categories={data.categories} setStatus={setStatus} updateTask={updateTask} reassignTask={reassignTask} openDetail={openDetail} />

@@ -92,10 +92,18 @@ export function MemberDetail({ agent, data, onBack, addRec, completeRec, deleteR
           <MiniStat icon={<Target size={15} />} label="Productivity" value={pct(s.productivity)} />
           <MiniStat icon={<Package size={15} />} label="Made" value={s.completed.length} />
           <MiniStat icon={<Send size={15} />} label="Published" value={s.published.length} color={C.teal} />
-          <MiniStat icon={<Gauge size={15} />} label="Speed" value={sp.txt} sub={s.avgSpeed ? s.avgSpeed.toFixed(2) + "×" : ""} color={sp.c} />
-          <MiniStat icon={<ShieldCheck size={15} />} label="Accuracy" value={pct(s.accuracy)} color={C.teal} />
-          <MiniStat icon={<AlertTriangle size={15} />} label="Error rate" value={pct(s.errorRate)} color={(s.errorRate ?? 0) > 5 ? C.rose : C.sub} />
+          <MiniStat icon={<Gauge size={15} />} label="Speed" value={sp.txt} sub={s.avgSpeed ? s.avgSpeed.toFixed(2) + "×" : ""} color={sp.c}
+            info="Estimated hours ÷ actual hours logged when a task was marked done via 'Record completion' / 'Publish'. Shows — until at least one task has been completed that way." />
+          <MiniStat icon={<ShieldCheck size={15} />} label="Accuracy" value={pct(s.accuracy)} color={C.teal}
+            info="(1 − errors ÷ items) from the item/error counts entered on 'Record completion'. Shows — until an item count has been entered on at least one task." />
+          <MiniStat icon={<AlertTriangle size={15} />} label="Error rate" value={pct(s.errorRate)} color={(s.errorRate ?? 0) > 5 ? C.rose : C.sub}
+            info="Errors ÷ items from the same 'Record completion' counts as Accuracy. Shows — until an item count has been entered on at least one task." />
         </div>
+        {(s.avgSpeed == null || s.accuracy == null) && (
+          <div style={{ fontSize: 11.5, color: C.sub, marginTop: 8 }}>
+            Speed, Accuracy, and Error rate are only calculated from tasks completed through <b>"Record completion" / "Publish"</b> (which asks for hours spent and item/error counts) — a task finished by just changing its status directly won't count toward these yet.
+          </div>
+        )}
       </div>
 
       {isAdmin && showAdd && <AddTaskForm agent={agent} categories={data.categories} onAdd={(t) => { addRec?.("tasks", { ...t, agentId: agent.id }); setShowAdd(false); }} onCancel={() => setShowAdd(false)} />}

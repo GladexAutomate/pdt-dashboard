@@ -1,4 +1,5 @@
 import { useState, useEffect, type ReactNode } from "react";
+import { Info } from "lucide-react";
 import { C, card, teamColor } from "../lib/theme";
 import { STATUSES, STATUS_META, PRIORITIES, PRIORITY_META } from "../lib/constants";
 import type { Agent, Team, Status, Priority, ChartItem } from "../lib/types";
@@ -79,19 +80,23 @@ export function BoardTile({ label, value, accent, sub }: { label: string; value:
   );
 }
 
-export function Stat({ label, value, color }: { label: string; value: ReactNode; color?: string }) {
+export function Stat({ label, value, color, info }: { label: string; value: ReactNode; color?: string; info?: string }) {
   return (
     <div>
       <div style={{ fontSize: 16, fontWeight: 700, color: color || C.text }}>{value}</div>
-      <div style={{ fontSize: 10.5, color: C.sub, textTransform: "uppercase", letterSpacing: 0.3 }}>{label}</div>
+      <div className="flex items-center gap-1" style={{ fontSize: 10.5, color: C.sub, textTransform: "uppercase", letterSpacing: 0.3 }}>
+        {label}{info && <span title={info} style={{ cursor: "help", display: "inline-flex", flexShrink: 0 }}><Info size={10} /></span>}
+      </div>
     </div>
   );
 }
 
-export function MiniStat({ icon, label, value, sub, color }: { icon?: ReactNode; label: string; value: ReactNode; sub?: ReactNode; color?: string }) {
+export function MiniStat({ icon, label, value, sub, color, info }: { icon?: ReactNode; label: string; value: ReactNode; sub?: ReactNode; color?: string; info?: string }) {
   return (
     <div style={{ background: C.paper, borderRadius: 11, padding: "10px 12px" }}>
-      <div className="flex items-center gap-1.5" style={{ color: C.sub, fontSize: 11, fontWeight: 600 }}>{icon}{label}</div>
+      <div className="flex items-center gap-1.5" style={{ color: C.sub, fontSize: 11, fontWeight: 600 }}>
+        {icon}{label}{info && <span title={info} style={{ cursor: "help", display: "inline-flex", flexShrink: 0 }}><Info size={11} /></span>}
+      </div>
       <div className="flex items-baseline gap-1 mt-0.5">
         <span style={{ fontSize: 18, fontWeight: 700, color: color || C.text }}>{value}</span>
         {sub && <span style={{ fontSize: 11, color: C.sub }}>{sub}</span>}
