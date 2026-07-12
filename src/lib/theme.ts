@@ -8,12 +8,21 @@ export const C = {
   amber: "#D9852A", amberSoft: "#FBEEDB",
   rose: "#D6536A", roseSoft: "#FBE6EA",
   domestic: "#E0663F", international: "#3C6CE0",
-  gold: "#E9B949"
+  gold: "#E9B949",
+  // soft pastel accents for the travel-themed decorative backdrop
+  skyBlue: "#BFE0FB", skyBlueSoft: "#EAF4FE",
+  peach: "#FBD2B4", peachSoft: "#FDF0E5",
+  mint: "#BCEBDA", mintSoft: "#E9FAF3",
+  lavender: "#D6CEF6", lavenderSoft: "#F2EEFC",
+  sand: "#F6DFA0", sandSoft: "#FCF3E0"
 };
 export const teamColor = (t: Team | string | undefined): string => (t === "Domestic" ? C.domestic : C.international);
 export const catC = (name: string | undefined, categories?: Category[]): string => (name && categories?.find((c) => c.name === name)?.color) || "#64708A";
 
-export const card: CSSProperties = { background: C.surface, border: `1px solid ${C.line}`, borderRadius: 16 };
+export const card: CSSProperties = {
+  background: "rgba(255,255,255,0.86)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+  border: `1px solid ${C.line}`, borderRadius: 16
+};
 export const inputStyle: CSSProperties = { width: "100%", border: `1px solid ${C.line}`, borderRadius: 10, padding: "9px 11px", fontSize: 14, color: C.text, background: "#fff", outline: "none" };
 export const cellStyle: CSSProperties = { padding: "10px 12px", verticalAlign: "top", fontSize: 13 };
 export const dateInputStyle: CSSProperties = { border: `1px solid ${C.line}`, borderRadius: 8, padding: "5px 7px", fontSize: 12.5, color: C.text, background: "#fff", outline: "none", fontFamily: "inherit" };

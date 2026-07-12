@@ -1,8 +1,12 @@
-import type { ReactNode } from "react";
-import { Package, LogOut, UserCog } from "lucide-react";
+import type { ReactNode, CSSProperties } from "react";
+import { Palmtree, LogOut, UserCog } from "lucide-react";
 import { C } from "../lib/theme";
 import { Btn } from "./ui";
 import type { Session } from "../lib/types";
+
+const glass: CSSProperties = {
+  background: "rgba(255,255,255,0.72)", backdropFilter: "blur(18px)", WebkitBackdropFilter: "blur(18px)"
+};
 
 /* ---------------- Shell ---------------- */
 export function Shell({ session, onLogout, onAccount, tabs, active, setActive, children }: {
@@ -11,14 +15,21 @@ export function Shell({ session, onLogout, onAccount, tabs, active, setActive, c
 }) {
   return (
     <div>
-      <header className="flex items-center justify-between" style={{ background: C.surface, borderBottom: `1px solid ${C.line}`, padding: "12px 18px" }}>
-        <div className="flex items-center gap-2.5">
-          <div className="flex items-center justify-center" style={{ width: 32, height: 32, borderRadius: 9, background: C.ink }}>
-            <Package size={17} color={C.gold} />
+      <header className="flex items-center justify-between" style={{ ...glass, borderBottom: `1px solid ${C.line}`, padding: "12px 18px" }}>
+        <div className="flex items-center gap-3">
+          {/* swap for <img src={logo} alt="Gladex Travel and Tours" style={{ height: 42, borderRadius: 12 }} /> once the brand logo file is added */}
+          <div className="flex items-center justify-center" style={{
+            width: 42, height: 42, borderRadius: 12, flexShrink: 0,
+            background: `linear-gradient(155deg, ${C.gold} 0%, ${C.peach} 55%, ${C.international} 100%)`,
+            boxShadow: "0 4px 14px rgba(217,133,42,0.3)"
+          }}>
+            <Palmtree size={22} color="#fff" />
           </div>
           <div>
-            <div style={{ fontWeight: 700, fontSize: 14, lineHeight: 1.15 }}>Product Development Daily Workspace</div>
-            <div style={{ fontSize: 11.5, color: C.sub }}>Tasking · targets · efficiency</div>
+            <div style={{ fontWeight: 800, fontSize: 15, lineHeight: 1.15, letterSpacing: 0.2 }}>
+              GLADEX <span style={{ fontWeight: 600, color: C.sub }}>Travel &amp; Tours Corp.</span>
+            </div>
+            <div style={{ fontSize: 11.5, color: C.sub, marginTop: 1 }}>Product Development Daily Workspace</div>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -30,10 +41,14 @@ export function Shell({ session, onLogout, onAccount, tabs, active, setActive, c
           <Btn onClick={onLogout} kind="blue" sm icon={<LogOut size={14} />}>Logout</Btn>
         </div>
       </header>
-      <nav className="flex gap-1 flex-wrap" style={{ background: C.surface, borderBottom: `1px solid ${C.line}`, padding: "0 12px" }}>
+      <nav className="flex gap-1.5 flex-wrap" style={{ ...glass, borderBottom: `1px solid ${C.line}`, padding: "8px 12px" }}>
         {tabs.map(([id, label, icon, badge]) => (
           <button key={id} onClick={() => setActive(id)} className="flex items-center gap-1.5 font-semibold"
-            style={{ fontSize: 13, padding: "11px 13px", color: active === id ? C.text : C.sub, borderBottom: `2px solid ${active === id ? C.ink : "transparent"}`, background: "transparent" }}>
+            style={{
+              fontSize: 13, padding: "8px 13px", borderRadius: 10, border: "none",
+              color: active === id ? C.ink : C.sub,
+              background: active === id ? C.skyBlueSoft : "transparent"
+            }}>
             {icon}{label}
             {!!badge && (
               <span style={{ background: C.rose, color: "#fff", borderRadius: 999, fontSize: 11, fontWeight: 700, lineHeight: 1, padding: "2px 6px", minWidth: 16, textAlign: "center" }}>

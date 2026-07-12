@@ -6,5 +6,5 @@ html, body, #root {
 
 body {
   margin: 0;
-  background: #EDF0F6;
+  background: linear-gradient(135deg, #EAF4FE 0%, #F6F7FC 30%, #FDF0E5 65%, #E9FAF3 100%);
 }

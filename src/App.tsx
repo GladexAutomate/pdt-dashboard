@@ -13,6 +13,7 @@ import type {
 } from "./lib/types";
 import { Login } from "./components/Login";
 import { Shell } from "./components/Shell";
+import { TravelBackdrop } from "./components/TravelBackdrop";
 import { AdminAccount, type UpdateAdminInput } from "./components/AdminAccount";
 import { AdminHome } from "./components/AdminHome";
 import { Teams } from "./components/Teams";
@@ -478,10 +479,12 @@ export default function App() {
     <div style={{
       fontFamily: font,
       color: C.text,
-      background: C.paper,
       minHeight: "100vh",
       width: "100%",
+      position: "relative",
     }}>
+      <TravelBackdrop />
+      <div style={{ position: "relative", zIndex: 1 }}>
       {!session ? (
         <Login onLogin={doLogin} />
       ) : session.role === "admin" ? (
@@ -553,6 +556,7 @@ export default function App() {
           <button onClick={() => setToast(null)} style={{ background: "transparent", border: "none", color: "#fff", cursor: "pointer", fontSize: 15, lineHeight: 1, opacity: 0.85 }}>×</button>
         </div>
       )}
+      </div>
     </div>
   );
 }
