@@ -1,6 +1,6 @@
 import { ArrowRightLeft } from "lucide-react";
 import { C, card, catC } from "../lib/theme";
-import { STATUS_META, PRIORITY_META, DEAD } from "../lib/constants";
+import { STATUS_META, PRIORITY_META, DEAD, DONEISH } from "../lib/constants";
 import { flattenRecords, relTime } from "../lib/helpers";
 import { Chip } from "./ui";
 import type { AppData, ColKey } from "../lib/types";
@@ -24,7 +24,9 @@ export function ReassignedTasks({ data, isAdmin, meId, openDetail }: ReassignedT
   const meName = data.agents.find((a) => a.id === meId)?.name;
   const withHandoffs = flattenRecords(data)
     .map((t) => ({ t, hops: (t.activity || []).filter((a) => a.type === "reassign") }))
-    .filter((x) => x.hops.length > 0);
+    // once a handed-off task is actually finished, there's nothing left to
+    // follow up on, so it drops off this list instead of lingering here.
+    .filter((x) => x.hops.length > 0 && !DONEISH(x.t.status));
   const scoped = isAdmin ? withHandoffs : withHandoffs.filter((x) =>
     x.t.agentId === meId || (meName && x.hops.some((h) => h.text.includes(meName)))
   );

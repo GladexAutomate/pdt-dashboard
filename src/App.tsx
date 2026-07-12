@@ -469,7 +469,7 @@ export default function App() {
     openDetail: (id: string, recCol?: ColKey) => setDetail({ col: recCol || col, id })
   });
   const detailRec = detail ? (data[detail.col] || []).find((r) => r.id === detail.id) : null;
-  const reassignedForMe = flattenRecords(data).filter((t) => (t.activity || []).some((a) => a.type === "reassign") && (session?.role === "admin" || t.agentId === session?.agentId)).length;
+  const reassignedForMe = flattenRecords(data).filter((t) => !DONEISH(t.status) && (t.activity || []).some((a) => a.type === "reassign") && (session?.role === "admin" || t.agentId === session?.agentId)).length;
   const reportProps = {
     data, isAdmin: session?.role === "admin", meId: session?.agentId, actorName: session?.name,
     openAny: (col: ColKey, id: string) => setDetail({ col, id }), submitReport, approveReport, reopenReport
