@@ -8,17 +8,13 @@ import type { ColKey, TrackerConfig, AppData, Agent, TaskRecord, Status, Categor
 
 /* ---------------- Project / file trackers ---------------- */
 export function TrackerSummary({ records }: { records: TaskRecord[] }) {
-  const active = records.filter((r) => !DONEISH(r.status) && !DEAD(r.status)).length;
   const completed = records.filter((r) => DONEISH(r.status)).length;
   const pending = records.filter((r) => r.status === "pending").length;
   const overdue = records.filter((r) => { const d = dueMeta(r); return d && d.over; }).length;
-  const high = records.filter((r) => r.priority === "high" && !DONEISH(r.status) && !DEAD(r.status)).length;
   const tiles = [
-    { label: "Active", value: active, c: C.international },
     { label: "Completed", value: completed, c: C.teal },
     { label: "Pending", value: pending, c: C.sub },
-    { label: "Overdue", value: overdue, c: C.rose },
-    { label: "High priority", value: high, c: C.amber }
+    { label: "Overdue", value: overdue, c: C.rose }
   ];
   return (
     <div className="grid gap-2.5 mb-4" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(110px,1fr))" }}>
@@ -62,9 +58,13 @@ export function TrackerView({ col, config, data, isAdmin, meId, addRec, updateRe
   // ticket someone created elsewhere still shows up here without having to
   // exist twice. Actions on a related row are routed back to its real
   // collection (r._col), not this tracker's, since that's where it lives.
-  const own = (data[col] || []).map((r) => ({ ...r, _col: col }));
+  // some add-task forms never stamp team explicitly, so fall back to the
+  // assignee's current roster team — keeps the Team column and the team
+  // filter in sync instead of one showing "—" while the other still matches.
+  const teamOf = (r: TaskRecord) => r.team || data.agents.find((a) => a.id === r.agentId)?.team || "";
+  const own = (data[col] || []).map((r) => ({ ...r, _col: col, team: teamOf(r) }));
   const related = COLLECTIONS.filter((c) => c !== col).flatMap((c) =>
-    (data[c] || []).filter((r) => trackerColForCategory(r.category) === col).map((r) => ({ ...r, _col: c }))
+    (data[c] || []).filter((r) => trackerColForCategory(r.category) === col).map((r) => ({ ...r, _col: c, team: teamOf(r) }))
   );
   const records = [...own, ...related];
   const agentName = (id: string | null | undefined) => data.agents.find((a) => a.id === id)?.name || "Unassigned";
@@ -133,7 +133,7 @@ export function TrackerView({ col, config, data, isAdmin, meId, addRec, updateRe
         <Btn kind="teal" sm icon={<Plus size={15} />} onClick={() => setShowAdd((v) => !v)}>New {col === "tariff" ? "tariff file" : "project"}</Btn>
       </div>
 
-      <TrackerSummary records={records} />
+      <TrackerSummary records={filtered} />
 
       {showAdd && <AddRecordForm col={col} config={config} agents={data.agents.filter((a) => a.isActive)} categories={data.categories} meId={meId} isAdmin={isAdmin}
         onAdd={(r) => { addRec(col, r); setShowAdd(false); }} onCancel={() => setShowAdd(false)} />}

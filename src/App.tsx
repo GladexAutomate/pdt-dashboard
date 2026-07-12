@@ -121,10 +121,14 @@ export default function App() {
   const addRec = (col: ColKey, r: Partial<TaskRecord>): string => {
     const id = (col === "tasks" ? "t" : col.slice(0, 2)) + Date.now();
     const now = Date.now();
+    // some add-task forms (Daily Tasking, My Work's "Assign task") never set
+    // team explicitly — back it from the assignee's roster team so it's
+    // never silently blank, same as reassignRec already does on handover.
+    const inferredTeam = data?.agents.find((a) => a.id === r.agentId)?.team || "";
     const full: TaskRecord = {
       id, agentId: null, title: "", status: "pending", startedAt: null, completedAt: null, itemsTotal: 0, itemsError: 0, startDate: null, dueDate: null,
       requirements: "", remarks: "", description: "", links: [], proof: [], proofCount: 0, priority: "medium", progress: 0,
-      comments: [], activity: [], collaboratorIds: [], category: "", department: "", destination: "", team: "",
+      comments: [], activity: [], collaboratorIds: [], category: "", department: "", destination: "", team: inferredTeam,
       assignedBy: actor().name, completedBy: null, updatedAt: now, updatedBy: actor().name, ...r
     };
     persistCol(col, (list) => [...list, full]);
