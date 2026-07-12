@@ -6,7 +6,7 @@ import {
 import { C } from "./lib/theme";
 import { TRACKERS, DONEISH, H, STATUS_META } from "./lib/constants";
 import { flattenRecords } from "./lib/helpers";
-import { fetchAppData, insertRecord, updateRecordRow, deleteRecordRow, insertLog, upsertReport, insertKpiDefRow, updateKpiDefRow, deleteKpiDefRow, subscribeToChanges, createAgent, updateAgentRow, deleteAgentRow, updateAdminRow, insertCategoryRow, updateCategoryRow, deleteCategoryRow, setAgentAdmin, setAgentActive, appendComment, appendActivity, appendProof, appendLink } from "./lib/api";
+import { fetchAppData, insertRecord, updateRecordRow, deleteRecordRow, insertLog, upsertReport, insertKpiDefRow, updateKpiDefRow, deleteKpiDefRow, subscribeToChanges, createAgent, updateAgentRow, deleteAgentRow, updateAdminRow, insertCategoryRow, updateCategoryRow, deleteCategoryRow, setAgentAdmin, setAgentActive, appendComment, appendActivity, appendProof, appendLink, fetchRecordProof } from "./lib/api";
 import type {
   AppData, TaskRecord, Status, Team, ColKey, LogEntry, ReportState, Session,
   LoginResult, DetailTarget, Agent, ActivityEntry, CommentEntry, KpiDef, Category, Priority, ProofItem, LinkItem
@@ -73,6 +73,19 @@ export default function App() {
     const unsubscribe = subscribeToChanges(refetch);
     return () => { if (timer) clearTimeout(timer); unsubscribe(); };
   }, [loading]);
+
+  // proof (screenshots/files) is excluded from the bulk dashboard load — see
+  // RECORD_COLUMNS_NO_PROOF in api.ts — so fetch it just for the one record
+  // being viewed, only when its detail drawer is actually open.
+  useEffect(() => {
+    if (!detail) return;
+    let cancelled = false;
+    fetchRecordProof(detail.id).then((proof) => {
+      if (cancelled) return;
+      persistCol(detail.col, (l) => l.map((r) => (r.id === detail.id ? { ...r, proof } : r)));
+    }).catch((e) => console.error("Failed to load proof", e));
+    return () => { cancelled = true; };
+  }, [detail?.col, detail?.id]);
 
   /* persist only ever touches local state now — every mutator below also
      fires the matching targeted Supabase write (fire-and-forget; errors are

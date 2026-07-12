@@ -121,11 +121,18 @@ function recordPatchToRow(patch: Partial<TaskRecord>): Record<string, unknown> {
   return row;
 }
 
+// Every column except `proof` — proof items are base64 screenshots/files
+// that can each be several MB, so pulling them for every record on every
+// dashboard load doesn't scale. `proof_count` (already a separate column)
+// covers every place that just needs the count; the full array is fetched
+// on demand for one record at a time, see fetchRecordProof below.
+const RECORD_COLUMNS_NO_PROOF = "id,collection,agent_id,title,category,department,destination,team,status,priority,progress,start_date,due_date,started_at,completed_at,estimated_hours,items_total,items_error,special,target,requirements,remarks,description,links,proof_count,comments,activity,collaborator_ids,assigned_by,completed_by,updated_at,updated_by";
+
 /* ---------- full app data load ---------- */
 export async function fetchAppData(): Promise<AppData> {
   const [agentsRes, recordsRes, logsRes, kpiDefsRes, kpiProgressRes, reportsRes, categoriesRes] = await Promise.all([
     supabase.from("agents_public").select("*").order("id"),
-    supabase.from("records").select("*"),
+    supabase.from("records").select(RECORD_COLUMNS_NO_PROOF),
     supabase.from("logs").select("*").order("ts", { ascending: false }).limit(300),
     supabase.from("kpi_defs").select("*"),
     supabase.from("kpi_progress").select("*"),
@@ -178,6 +185,13 @@ export async function updateRecordRow(id: string, patch: Partial<TaskRecord>): P
 export async function deleteRecordRow(id: string): Promise<void> {
   const { error } = await supabase.from("records").delete().eq("id", id);
   if (error) throw error;
+}
+// fetched on demand when a single task's detail is opened — see the note on
+// RECORD_COLUMNS_NO_PROOF above for why proof isn't part of the bulk load.
+export async function fetchRecordProof(id: string): Promise<ProofItem[]> {
+  const { data, error } = await supabase.from("records").select("proof").eq("id", id).single();
+  if (error) throw error;
+  return (data?.proof as ProofItem[] | null) ?? [];
 }
 
 /* ---- atomic append-only writes: two people on the same task (see

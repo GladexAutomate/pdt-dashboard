@@ -4,7 +4,7 @@ import {
 } from "lucide-react";
 import { C, card, catC, teamColor, inputStyle } from "../lib/theme";
 import { PRIORITIES, PRIORITY_META, STATUS_META, DONEISH, DEAD } from "../lib/constants";
-import { toDateInput, fromDateInput, downloadCSV } from "../lib/helpers";
+import { toDateInput, fromDateInput, downloadCSV, dueMeta, fmtDay } from "../lib/helpers";
 import { Avatar, Chip, Btn, Field } from "./ui";
 import type { AppData, Agent, TaskRecord, Status, Priority, ColKey, Team, Category } from "../lib/types";
 import { todayKey, fmtDayLabel, fmtClock, buildDayTimeline, eodOf, fmtHours } from "../lib/daily";
@@ -28,6 +28,7 @@ interface DailyTaskingProps {
    else. This view just adds the day-by-day grouping + EOD report on top. */
 export function DailyTasking({ data, isAdmin, meId, addRec, setRecStatus, deleteRec, openDetail }: DailyTaskingProps) {
   const [date, setDate] = useState(todayKey());
+  const [tab, setTab] = useState<"today" | "pending">("today");
   const [staffF, setStaffF] = useState("all");
   const [showAssign, setShowAssign] = useState(false);
   const [showTeamReport, setShowTeamReport] = useState(false);
@@ -47,6 +48,16 @@ export function DailyTasking({ data, isAdmin, meId, addRec, setRecStatus, delete
         : d.agentId === agent.id || (d.collaboratorIds || []).includes(agent.id)
     )
   );
+  // "Pending" is a rollup, not scoped to one day — anything not finished
+  // (from any day, past or future) stays here until it's done, so nothing
+  // slips away just because the date picker moved on. A task created now
+  // with a due date of tomorrow (and high priority) shows up here right
+  // away and keeps floating near the top until it's dealt with.
+  const prRank = (p?: Priority) => PRIORITIES.indexOf(p || "medium");
+  const pendingFor = (agent: Agent) => (data.daily || [])
+    .filter((d) => !DONEISH(d.status) && !DEAD(d.status) && (d.agentId === agent.id || (d.collaboratorIds || []).includes(agent.id)))
+    .sort((a, b) => prRank(a.priority) - prRank(b.priority) || (a.dueDate ?? Infinity) - (b.dueDate ?? Infinity));
+  const totalPending = shown.reduce((sum, a) => sum + pendingFor(a).length, 0);
 
   const exportReport = () => {
     const head = ["Staff", "Team", "Task", "Category", "Priority", "Status", "Completed At"];
@@ -70,10 +81,19 @@ export function DailyTasking({ data, isAdmin, meId, addRec, setRecStatus, delete
         <div className="flex items-center gap-2 flex-wrap">
           {isAdmin && <Btn sm kind="teal" icon={<Plus size={14} />} onClick={() => setShowAssign((v) => !v)}>Assign daily task</Btn>}
           {!isAdmin && meId && <Btn sm kind="teal" icon={<Plus size={14} />} onClick={() => setShowAssign((v) => !v)}>Add task</Btn>}
-          {isAdmin && <Btn sm kind="ghost" icon={<Users size={14} />} onClick={() => setShowTeamReport((v) => !v)}>Team daily report</Btn>}
-          {isAdmin && <Btn sm kind="ghost" icon={<Download size={14} />} onClick={exportReport}>Generate report</Btn>}
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "7px 10px" }} />
+          {isAdmin && tab === "today" && <Btn sm kind="ghost" icon={<Users size={14} />} onClick={() => setShowTeamReport((v) => !v)}>Team daily report</Btn>}
+          {isAdmin && tab === "today" && <Btn sm kind="ghost" icon={<Download size={14} />} onClick={exportReport}>Generate report</Btn>}
+          {tab === "today" && <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "7px 10px" }} />}
         </div>
+      </div>
+
+      <div className="flex" style={{ background: C.paper, borderRadius: 10, padding: 3, width: "fit-content" }}>
+        {(["today", "pending"] as const).map((id) => (
+          <button key={id} onClick={() => setTab(id)} className="flex items-center gap-1.5 font-semibold"
+            style={{ fontSize: 12.5, padding: "6px 12px", borderRadius: 8, border: "none", background: tab === id ? "#fff" : "transparent", color: tab === id ? C.text : C.sub, boxShadow: tab === id ? "0 1px 2px rgba(0,0,0,0.06)" : "none", cursor: "pointer" }}>
+            {id === "today" ? "Today" : `Pending${totalPending ? ` (${totalPending})` : ""}`}
+          </button>
+        ))}
       </div>
 
       {showAssign && (isAdmin || meId) && (
@@ -82,7 +102,7 @@ export function DailyTasking({ data, isAdmin, meId, addRec, setRecStatus, delete
           onClose={() => setShowAssign(false)} />
       )}
 
-      {isAdmin && showTeamReport && <TeamDailyReport data={data} date={date} />}
+      {isAdmin && tab === "today" && showTeamReport && <TeamDailyReport data={data} date={date} />}
 
       {isAdmin && (
         <div className="flex items-center gap-2 flex-wrap" style={{ ...card, padding: 12 }}>
@@ -94,11 +114,23 @@ export function DailyTasking({ data, isAdmin, meId, addRec, setRecStatus, delete
         </div>
       )}
 
-      {shown.map((staff) => (
-        <DailyStaffCard key={staff.id} staff={staff} tasks={dailyFor(staff)} date={date} categories={data.categories}
-          canEdit={isAdmin || staff.id === meId} isAdmin={isAdmin}
-          onStatus={(id, status) => setRecStatus(COL, id, status)} onDelete={(id) => deleteRec(COL, id)} onOpen={openDetail} />
-      ))}
+      {tab === "today" ? (
+        <>
+          {shown.map((staff) => (
+            <DailyStaffCard key={staff.id} staff={staff} tasks={dailyFor(staff)} date={date} categories={data.categories}
+              canEdit={isAdmin || staff.id === meId} isAdmin={isAdmin}
+              onStatus={(id, status) => setRecStatus(COL, id, status)} onDelete={(id) => deleteRec(COL, id)} onOpen={openDetail} />
+          ))}
+        </>
+      ) : (
+        <>
+          {shown.map((staff) => (
+            <PendingStaffCard key={staff.id} staff={staff} tasks={pendingFor(staff)} categories={data.categories}
+              canEdit={isAdmin || staff.id === meId} isAdmin={isAdmin}
+              onStatus={(id, status) => setRecStatus(COL, id, status)} onDelete={(id) => deleteRec(COL, id)} onOpen={openDetail} />
+          ))}
+        </>
+      )}
       {shown.length === 0 && <div style={{ ...card, padding: 18, color: C.sub, fontSize: 13.5 }}>No staff to show.</div>}
 
       {!isAdmin && <div style={{ fontSize: 12, color: C.sub, textAlign: "center", paddingBottom: 4 }}>View is limited to your own tasks. You can add your own or wait for one assigned by the supervisor.</div>}
@@ -113,16 +145,18 @@ function AssignDailyForm({ agents, categories, date, fixedAgentId, onAssign, onC
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState(categories[0]?.name || "");
   const [priority, setPriority] = useState<Priority>("medium");
+  const [due, setDue] = useState(date);
   const ok = !!agentId && title.trim().length > 1;
 
   const submit = () => {
-    onAssign({ agentId, title: title.trim(), category, priority, startDate: fromDateInput(date), dueDate: fromDateInput(date) });
+    onAssign({ agentId, title: title.trim(), category, priority, startDate: fromDateInput(date), dueDate: fromDateInput(due) });
     setTitle("");
   };
 
   return (
     <div style={{ ...card, padding: 16, borderColor: C.teal }}>
-      <div className="flex items-center gap-2 mb-3"><Plus size={16} color={C.teal} /><span style={{ fontWeight: 700, fontSize: 14 }}>{fixedAgentId ? "Add a daily task" : "Assign a daily task"} · {fmtDayLabel(date)}</span></div>
+      <div className="flex items-center gap-2 mb-1"><Plus size={16} color={C.teal} /><span style={{ fontWeight: 700, fontSize: 14 }}>{fixedAgentId ? "Add a daily task" : "Assign a daily task"} · {fmtDayLabel(date)}</span></div>
+      <div style={{ fontSize: 12, color: C.sub, marginBottom: 10 }}>Due date defaults to today, but you can set it to tomorrow (e.g. an urgent task that comes in right at the end of a shift) — it'll show under "Pending" and be ready to work on when that day comes.</div>
       <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))" }}>
         {!fixedAgentId && (
           <Field label="Staff member">
@@ -141,6 +175,7 @@ function AssignDailyForm({ agents, categories, date, fixedAgentId, onAssign, onC
             {PRIORITIES.map((p) => <option key={p} value={p}>{PRIORITY_META[p].txt}</option>)}
           </select>
         </Field>
+        <Field label="Due date"><input type="date" value={due} onChange={(e) => setDue(e.target.value)} style={inputStyle} /></Field>
         <div style={{ gridColumn: "1 / -1" }}>
           <Field label="Task"><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Vietnam Itinerary" style={inputStyle} /></Field>
         </div>
@@ -184,29 +219,9 @@ function DailyStaffCard({ staff, tasks, date, categories, canEdit, isAdmin, onSt
       <div style={{ padding: "10px 14px" }}>
         {tasks.length === 0 && <div style={{ fontSize: 13, color: C.sub, padding: "6px 0" }}>No daily tasks for this date.</div>}
         <div className="space-y-2">
-          {tasks.map((t) => {
-            const m = STATUS_META[t.status];
-            const pm = PRIORITY_META[t.priority || "medium"];
-            return (
-              <div key={t.id} className="flex items-center justify-between flex-wrap gap-2" style={{ background: C.paper, borderRadius: 10, padding: "8px 11px", opacity: DEAD(t.status) ? 0.6 : 1 }}>
-                <div className="flex items-center gap-2" style={{ minWidth: 0 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: 3, background: catC(t.category, categories), flexShrink: 0 }} />
-                  <button onClick={() => onOpen(t.id)} style={{ fontWeight: 600, fontSize: 13.5, background: "transparent", border: "none", padding: 0, cursor: "pointer", color: C.text, textAlign: "left" }}>{t.title}</button>
-                  <Chip color={pm.c} soft={pm.soft} icon={<Flag size={9} />}>{pm.txt}</Chip>
-                  <Chip color={m.c} soft={m.soft}>{m.txt}</Chip>
-                  {t.completedAt && <span style={{ fontSize: 11.5, color: C.sub }} className="flex items-center gap-1"><Clock size={11} /> {fmtClock(t.completedAt)}</span>}
-                </div>
-                <div className="flex items-center gap-1.5">
-                  {canEdit && t.status === "pending" && <Btn sm kind="ghost" icon={<Play size={12} />} onClick={() => onStatus(t.id, "in_progress")}>Start</Btn>}
-                  {canEdit && t.status === "in_progress" && <Btn sm kind="ghost" icon={<Pause size={12} />} onClick={() => onStatus(t.id, "on_hold")}>Pause</Btn>}
-                  {canEdit && t.status === "on_hold" && <Btn sm kind="ghost" icon={<Play size={12} />} onClick={() => onStatus(t.id, "in_progress")}>Resume</Btn>}
-                  {canEdit && t.status === "in_progress" && <Btn sm kind="ghost" icon={<CheckCircle2 size={12} />} onClick={() => onStatus(t.id, "completed")}>Complete</Btn>}
-                  {canEdit && t.status === "completed" && <Btn sm kind="teal" icon={<Send size={12} />} onClick={() => onStatus(t.id, "published")}>Publish</Btn>}
-                  {isAdmin && <button onClick={() => onDelete(t.id)} title="Remove" style={{ color: C.rose, background: "none", border: "none", cursor: "pointer" }}><Trash2 size={14} /></button>}
-                </div>
-              </div>
-            );
-          })}
+          {tasks.map((t) => (
+            <DailyTaskRow key={t.id} t={t} categories={categories} canEdit={canEdit} isAdmin={isAdmin} onStatus={onStatus} onDelete={onDelete} onOpen={onOpen} />
+          ))}
         </div>
       </div>
 
@@ -248,6 +263,66 @@ function DailyStaffCard({ staff, tasks, date, categories, canEdit, isAdmin, onSt
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function DailyTaskRow({ t, categories, canEdit, isAdmin, onStatus, onDelete, onOpen, showDue }: {
+  t: TaskRecord; categories: Category[]; canEdit: boolean; isAdmin: boolean;
+  onStatus: (id: string, status: Status) => void; onDelete: (id: string) => void; onOpen: (id: string) => void; showDue?: boolean;
+}) {
+  const m = STATUS_META[t.status];
+  const pm = PRIORITY_META[t.priority || "medium"];
+  const dm = dueMeta(t);
+  return (
+    <div className="flex items-center justify-between flex-wrap gap-2" style={{ background: C.paper, borderRadius: 10, padding: "8px 11px", opacity: DEAD(t.status) ? 0.6 : 1 }}>
+      <div className="flex items-center gap-2 flex-wrap" style={{ minWidth: 0 }}>
+        <span style={{ width: 8, height: 8, borderRadius: 3, background: catC(t.category, categories), flexShrink: 0 }} />
+        <button onClick={() => onOpen(t.id)} style={{ fontWeight: 600, fontSize: 13.5, background: "transparent", border: "none", padding: 0, cursor: "pointer", color: C.text, textAlign: "left" }}>{t.title}</button>
+        <Chip color={pm.c} soft={pm.soft} icon={<Flag size={9} />}>{pm.txt}</Chip>
+        <Chip color={m.c} soft={m.soft}>{m.txt}</Chip>
+        {t.completedAt && <span style={{ fontSize: 11.5, color: C.sub }} className="flex items-center gap-1"><Clock size={11} /> {fmtClock(t.completedAt)}</span>}
+        {showDue && t.dueDate && <span className="flex items-center gap-1" style={{ fontSize: 11.5, color: dm && dm.over ? C.rose : C.sub, fontWeight: dm && dm.over ? 700 : 400 }}><Clock size={11} /> due {fmtDay(t.dueDate)}{dm && dm.label ? ` · ${dm.label}` : ""}</span>}
+      </div>
+      <div className="flex items-center gap-1.5">
+        {canEdit && t.status === "pending" && <Btn sm kind="ghost" icon={<Play size={12} />} onClick={() => onStatus(t.id, "in_progress")}>Start</Btn>}
+        {canEdit && t.status === "in_progress" && <Btn sm kind="ghost" icon={<Pause size={12} />} onClick={() => onStatus(t.id, "on_hold")}>Pause</Btn>}
+        {canEdit && t.status === "on_hold" && <Btn sm kind="ghost" icon={<Play size={12} />} onClick={() => onStatus(t.id, "in_progress")}>Resume</Btn>}
+        {canEdit && t.status === "in_progress" && <Btn sm kind="ghost" icon={<CheckCircle2 size={12} />} onClick={() => onStatus(t.id, "completed")}>Complete</Btn>}
+        {canEdit && t.status === "completed" && <Btn sm kind="teal" icon={<Send size={12} />} onClick={() => onStatus(t.id, "published")}>Publish</Btn>}
+        {isAdmin && <button onClick={() => onDelete(t.id)} title="Remove" style={{ color: C.rose, background: "none", border: "none", cursor: "pointer" }}><Trash2 size={14} /></button>}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- Pending — everything not finished yet, any day (past,
+   today, or a task already created for tomorrow), sorted priority-first so
+   an urgent last-minute task stays near the top until it's dealt with. ---------------- */
+function PendingStaffCard({ staff, tasks, categories, canEdit, isAdmin, onStatus, onDelete, onOpen }: {
+  staff: Agent; tasks: TaskRecord[]; categories: Category[]; canEdit: boolean; isAdmin: boolean;
+  onStatus: (id: string, status: Status) => void; onDelete: (id: string) => void; onOpen: (id: string) => void;
+}) {
+  return (
+    <div style={{ ...card, overflow: "hidden" }}>
+      <div className="flex items-center justify-between flex-wrap gap-2" style={{ padding: "12px 14px", borderBottom: `1px solid ${C.line}` }}>
+        <div className="flex items-center gap-2.5">
+          <Avatar name={staff.name} team={staff.team} size={38} />
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 15 }}>{staff.name}</div>
+            <div className="flex items-center gap-1.5" style={{ fontSize: 11.5, color: C.sub }}>{staff.team === "Domestic" ? <MapPin size={11} /> : <Globe size={11} />}{staff.team} Team</div>
+          </div>
+        </div>
+        <Chip color={tasks.length ? C.amber : C.sub} soft={tasks.length ? C.amberSoft : C.paper}>{tasks.length} pending</Chip>
+      </div>
+      <div style={{ padding: "10px 14px" }}>
+        {tasks.length === 0 && <div style={{ fontSize: 13, color: C.sub, padding: "6px 0" }}>Nothing pending — all caught up.</div>}
+        <div className="space-y-2">
+          {tasks.map((t) => (
+            <DailyTaskRow key={t.id} t={t} categories={categories} canEdit={canEdit} isAdmin={isAdmin} onStatus={onStatus} onDelete={onDelete} onOpen={onOpen} showDue />
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

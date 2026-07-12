@@ -53,7 +53,10 @@ export function TaskDetail({ task, data, actor, canEdit, onClose, updateTask, se
   const [showFollowUp, setShowFollowUp] = useState(false);
   const [addCollabId, setAddCollabId] = useState("");
 
-  useEffect(() => { setProof(task.proof || []); }, [task.id]);
+  // proof isn't part of the bulk dashboard load (see api.ts) — App.tsx
+  // fetches it just for this task once the drawer opens, so re-sync once
+  // that arrives (task.proof only changes reference when it actually does).
+  useEffect(() => { setProof(task.proof || []); }, [task.id, task.proof]);
 
   // adds go through the atomic append RPC (appendProof) so two collaborators
   // uploading proof at the same instant both land; removals stay a plain
