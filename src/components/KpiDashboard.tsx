@@ -80,9 +80,14 @@ export function KpiDashboard({ data, isAdmin, addDef, updateDef, removeDef }: Kp
   // Current is always computed, never typed in — a KPI's "task" is a
   // category name, and Current = how many of that person's completed
   // tickets this month carry that category (see kpiCurrentCount).
+  // KPI_STAFF's `name` is a fixed, hand-maintained label that can drift from
+  // the live roster (e.g. it says "Angelee" while the real agent is named
+  // "Ange") — completedBy is always stamped with the real name, so Current
+  // must be matched against the real name too, not the hardcoded one.
   const staffRows: StaffRow[] = useMemo(() => KPI_STAFF.map((s) => {
+    const realName = data.agents.find((a) => a.id === s.agentId)?.name || s.name;
     const kpis: KpiRow[] = defs.filter((d) => d.staffId === s.id).map((d) => {
-      const current = kpiCurrentCount(allRecords, s.name, d.task, y, mo - 1);
+      const current = kpiCurrentCount(allRecords, realName, d.task, y, mo - 1);
       const remaining = Math.max(d.target - current, 0);
       const p = d.target ? (current / d.target) * 100 : 0;
       return { id: d.id, task: d.task, target: d.target, current, remaining, pct: p, status: kpiStatus(p) };
@@ -90,8 +95,8 @@ export function KpiDashboard({ data, isAdmin, addDef, updateDef, removeDef }: Kp
     const tTarget = sum(kpis.map((k) => k.target));
     const tCur = sum(kpis.map((k) => k.current));
     const p = tTarget ? (tCur / tTarget) * 100 : 0;
-    return { ...s, kpis, tTarget, tCur, pct: p, status: kpiStatus(p) };
-  }), [defs, allRecords, y, mo]);
+    return { ...s, name: realName, kpis, tTarget, tCur, pct: p, status: kpiStatus(p) };
+  }), [defs, allRecords, data.agents, y, mo]);
 
   const teamSum = (t: Team): TeamSum => {
     const st = staffRows.filter((s) => s.team === t);
@@ -105,7 +110,7 @@ export function KpiDashboard({ data, isAdmin, addDef, updateDef, removeDef }: Kp
   const allStatus = kpiStatus(allPct);
   const top = [...staffRows].filter((s) => s.tTarget > 0).sort((a, b) => b.pct - a.pct)[0];
 
-  const staffOptions = KPI_STAFF.filter((s) => team === "All" || s.team === team);
+  const staffOptions = staffRows.filter((s) => team === "All" || s.team === team);
   const taskOptions = [...new Set(defs.map((d) => d.task))].sort();
 
   let shown = staffRows;
