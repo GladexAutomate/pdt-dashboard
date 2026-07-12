@@ -1,4 +1,5 @@
 export type Team = "Domestic" | "International";
+export type Gender = "male" | "female" | "other";
 
 export type Status =
   | "pending" | "in_progress" | "for_review" | "revisions"
@@ -33,6 +34,7 @@ export interface Agent {
   username: string;
   isAdmin: boolean;
   isActive: boolean;
+  gender?: Gender;
 }
 
 export interface CommentEntry {

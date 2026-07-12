@@ -1,15 +1,18 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   CalendarCheck, Plus, Users, MapPin, Globe, Play, Pause, CheckCircle2, Send, Trash2, Clock, Activity, FileText, Flag, Download, ChevronDown, ChevronUp
 } from "lucide-react";
 import { C, card, catC, teamColor, inputStyle } from "../lib/theme";
 import { PRIORITIES, PRIORITY_META, STATUS_META, DONEISH, DEAD } from "../lib/constants";
 import { toDateInput, fromDateInput, downloadCSV, dueMeta, fmtDay } from "../lib/helpers";
+import { claimCongrats } from "../lib/api";
 import { Avatar, Chip, Btn, Field } from "./ui";
+import { CongratsModal } from "./Congrats";
 import type { AppData, Agent, TaskRecord, Status, Priority, ColKey, Team, Category } from "../lib/types";
 import { todayKey, fmtDayLabel, fmtClock, buildDayTimeline, eodOf, fmtHours } from "../lib/daily";
 
 const COL: ColKey = "daily";
+const CONGRATS_HOURS = 8;
 
 interface DailyTaskingProps {
   data: AppData;
@@ -118,7 +121,7 @@ export function DailyTasking({ data, isAdmin, meId, addRec, setRecStatus, delete
         <>
           {shown.map((staff) => (
             <DailyStaffCard key={staff.id} staff={staff} tasks={dailyFor(staff)} date={date} categories={data.categories}
-              canEdit={isAdmin || staff.id === meId} isAdmin={isAdmin}
+              canEdit={isAdmin || staff.id === meId} isAdmin={isAdmin} isSelf={!isAdmin && staff.id === meId}
               onStatus={(id, status) => setRecStatus(COL, id, status)} onDelete={(id) => deleteRec(COL, id)} onOpen={openDetail} />
           ))}
         </>
@@ -188,15 +191,34 @@ function AssignDailyForm({ agents, categories, date, fixedAgentId, onAssign, onC
   );
 }
 
-function DailyStaffCard({ staff, tasks, date, categories, canEdit, isAdmin, onStatus, onDelete, onOpen }: {
-  staff: Agent; tasks: TaskRecord[]; date: string; categories: Category[]; canEdit: boolean; isAdmin: boolean;
+function DailyStaffCard({ staff, tasks, date, categories, canEdit, isAdmin, isSelf, onStatus, onDelete, onOpen }: {
+  staff: Agent; tasks: TaskRecord[]; date: string; categories: Category[]; canEdit: boolean; isAdmin: boolean; isSelf?: boolean;
   onStatus: (id: string, status: Status) => void; onDelete: (id: string) => void; onOpen: (id: string) => void;
 }) {
   const [showEod, setShowEod] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
+  const [showCongrats, setShowCongrats] = useState(false);
   const timeline = buildDayTimeline(tasks, date);
   const eod = eodOf(tasks, date);
   const doneCount = tasks.filter((t) => DONEISH(t.status)).length;
+
+  // celebrate once per visit to this page — the moment today's logged hours
+  // cross a full day's work, show it; reopening/reloading Daily Tasking
+  // later that same day shows it again, since it's meant as a standing
+  // "you've had a full day" moment rather than a one-and-done. Only for the
+  // agent's own card, never while an admin is just browsing the roster.
+  // Within one visit it still only fires once, even as hours keep climbing
+  // (8h → 9h → 10h...) — shownThisVisit resets fresh on every new mount
+  // (page reload, switching tabs away and back, re-login).
+  const shownThisVisit = useRef(false);
+  useEffect(() => {
+    if (!isSelf || date !== todayKey() || (eod.hours ?? 0) < CONGRATS_HOURS || shownThisVisit.current) return;
+    shownThisVisit.current = true;
+    setShowCongrats(true);
+    // best-effort record of the achievement — no longer used to gate whether
+    // the popup shows, just kept for a future "who hit 8h today" report.
+    claimCongrats(staff.id, date).catch((e) => console.error("Failed to log congrats", e));
+  }, [isSelf, date, eod.hours, staff.id]);
 
   return (
     <div style={{ ...card, overflow: "hidden" }}>
@@ -262,6 +284,9 @@ function DailyStaffCard({ staff, tasks, date, categories, canEdit, isAdmin, onSt
             </div>
           </div>
         </div>
+      )}
+      {showCongrats && (
+        <CongratsModal name={staff.name} hours={eod.hours || 0} tasks={eod.completed.map((t) => t.title)} gender={staff.gender} onClose={() => setShowCongrats(false)} />
       )}
     </div>
   );

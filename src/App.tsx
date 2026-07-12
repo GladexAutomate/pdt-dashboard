@@ -298,11 +298,11 @@ export default function App() {
     if (!input.name.trim() || !username || !input.password.trim()) return "Name, username, and password are required.";
     const id = "a" + Date.now() + Math.random().toString(36).slice(2, 5);
     try {
-      await createAgent({ id, name: input.name.trim(), team: input.team, username, password: input.password.trim() });
+      await createAgent({ id, name: input.name.trim(), team: input.team, username, password: input.password.trim(), gender: input.gender });
     } catch (e) {
       return e instanceof Error ? e.message : "Failed to add user.";
     }
-    const agent: Agent = { id, name: input.name.trim(), team: input.team, username, isAdmin: false, isActive: true };
+    const agent: Agent = { id, name: input.name.trim(), team: input.team, username, isAdmin: false, isActive: true, gender: input.gender };
     persist((d) => ({ ...d, agents: [...d.agents, agent] }));
     log({ userId: actor().id, name: actor().name, role: actor().role, type: "create", detail: `Added user "${agent.name}"` });
     return null;

@@ -3,7 +3,7 @@ import { COLLECTIONS } from "./constants";
 import type {
   AppData, Agent, TaskRecord, LogEntry, KpiDef, ReportState, ColKey,
   Status, Priority, ProofItem, CommentEntry, ActivityEntry, LinkItem,
-  Team, LoginResult, Category
+  Team, LoginResult, Category, Gender
 } from "./types";
 
 /* ---------- timestamp helpers (DB uses ISO strings, the app uses epoch ms) ---------- */
@@ -143,7 +143,7 @@ export async function fetchAppData(): Promise<AppData> {
     if (res.error) throw res.error;
   }
 
-  const agents: Agent[] = (agentsRes.data || []).map((r) => ({ id: r.id, name: r.name, team: r.team, username: r.username, isAdmin: r.is_admin, isActive: r.is_active }));
+  const agents: Agent[] = (agentsRes.data || []).map((r) => ({ id: r.id, name: r.name, team: r.team, username: r.username, isAdmin: r.is_admin, isActive: r.is_active, gender: r.gender ?? undefined }));
   const categories: Category[] = (categoriesRes.data || []).map((r) => ({ id: r.id, name: r.name, color: r.color }));
 
   const byCol: Record<ColKey, TaskRecord[]> = { tasks: [], premium: [], gladex: [], tariff: [], daily: [] };
@@ -283,10 +283,11 @@ export interface CreateAgentInput {
   team: Team;
   username: string;
   password: string;
+  gender?: Gender;
 }
 export async function createAgent(input: CreateAgentInput): Promise<void> {
   const { error } = await supabase.rpc("create_agent", {
-    p_id: input.id, p_name: input.name, p_team: input.team, p_username: input.username, p_password: input.password
+    p_id: input.id, p_name: input.name, p_team: input.team, p_username: input.username, p_password: input.password, p_gender: input.gender ?? null
   });
   if (error) throw error;
 }
@@ -296,10 +297,11 @@ export interface UpdateAgentInput {
   team?: Team;
   username?: string;
   password?: string;
+  gender?: Gender;
 }
 export async function updateAgentRow(id: string, patch: UpdateAgentInput): Promise<void> {
   const { error } = await supabase.rpc("update_agent", {
-    p_id: id, p_name: patch.name ?? null, p_team: patch.team ?? null, p_username: patch.username ?? null, p_password: patch.password ?? null
+    p_id: id, p_name: patch.name ?? null, p_team: patch.team ?? null, p_username: patch.username ?? null, p_password: patch.password ?? null, p_gender: patch.gender ?? null
   });
   if (error) throw error;
 }
@@ -327,6 +329,17 @@ export async function setAgentAdmin(id: string, isAdmin: boolean): Promise<void>
 export async function setAgentActive(id: string, isActive: boolean): Promise<void> {
   const { error } = await supabase.rpc("set_agent_active", { p_id: id, p_is_active: isActive });
   if (error) throw error;
+}
+
+/* ---------- congrats-shown log ----------
+   Inserting IS the claim — a unique (agent_id, date) row can only exist
+   once, so if two browsers race for the same day only one insert succeeds.
+   That's checked instead of a read-then-write, which would have a race. */
+export async function claimCongrats(agentId: string, date: string): Promise<boolean> {
+  const { error } = await supabase.from("congrats_log").insert({ agent_id: agentId, date });
+  if (!error) return true;
+  if (error.code === "23505") return false; // already claimed by this or another browser
+  throw error;
 }
 
 export function subscribeToChanges(onChange: () => void): () => void {

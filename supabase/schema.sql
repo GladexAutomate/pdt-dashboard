@@ -15,10 +15,12 @@ create table if not exists agents (
   username  text not null unique,
   password  text not null,
   is_admin  boolean not null default false,
-  is_active boolean not null default true
+  is_active boolean not null default true,
+  gender    text check (gender in ('male', 'female', 'other'))
 );
 alter table agents add column if not exists is_admin boolean not null default false;
 alter table agents add column if not exists is_active boolean not null default true;
+alter table agents add column if not exists gender text check (gender in ('male', 'female', 'other'));
 
 -- ---------- admin account (kept separate from agents for the pure back-office
 --            supervisor identity that never does tasking — an agent can also
@@ -36,7 +38,7 @@ create table if not exists admins (
 -- this bypasses the RLS lockdown on `agents` below while never exposing
 -- password hashes.
 create or replace view agents_public as
-  select id, name, team, username, is_admin, is_active from agents;
+  select id, name, team, username, is_admin, is_active, gender from agents;
 
 -- ---------- records: unifies tasks / premium / gladex / tariff / daily ----------
 -- "daily" tasks are ordinary records too (same title/category/priority/status
@@ -137,6 +139,16 @@ insert into categories (id, name, color) values
   ('cat5', 'Collectives', '#D9852A')
 on conflict (id) do nothing;
 
+-- ---------- "8 hours logged today" congrats popup — one row per agent per
+-- day claims that day's celebration, so it only ever fires once regardless
+-- of how many browsers/devices that agent is signed in on. ----------
+create table if not exists congrats_log (
+  agent_id text not null,
+  date     text not null,
+  shown_at timestamptz not null default now(),
+  primary key (agent_id, date)
+);
+
 -- ---------- auth functions ----------
 -- All credential reads/writes go through these security-definer functions,
 -- which run with the privileges of the function owner and so bypass RLS —
@@ -169,7 +181,12 @@ begin
 end;
 $$;
 
-create or replace function public.create_agent(p_id text, p_name text, p_team text, p_username text, p_password text)
+-- signatures below gained p_gender — drop the old arities first so they
+-- don't linger as ambiguous overloads alongside the new ones.
+drop function if exists public.create_agent(text, text, text, text, text);
+drop function if exists public.update_agent(text, text, text, text, text);
+
+create or replace function public.create_agent(p_id text, p_name text, p_team text, p_username text, p_password text, p_gender text default null)
 returns void
 language plpgsql
 security definer
@@ -180,13 +197,13 @@ begin
      or exists (select 1 from admins where username = lower(p_username)) then
     raise exception 'That username is already taken.';
   end if;
-  insert into agents (id, name, team, username, password)
-  values (p_id, p_name, p_team, lower(p_username), crypt(p_password, gen_salt('bf')));
+  insert into agents (id, name, team, username, password, gender)
+  values (p_id, p_name, p_team, lower(p_username), crypt(p_password, gen_salt('bf')), p_gender);
 end;
 $$;
 
 -- any param left null keeps its current value; p_password null/empty keeps the current password.
-create or replace function public.update_agent(p_id text, p_name text default null, p_team text default null, p_username text default null, p_password text default null)
+create or replace function public.update_agent(p_id text, p_name text default null, p_team text default null, p_username text default null, p_password text default null, p_gender text default null)
 returns void
 language plpgsql
 security definer
@@ -204,7 +221,8 @@ begin
     name = coalesce(p_name, name),
     team = coalesce(p_team, team),
     username = v_username,
-    password = case when p_password is not null and length(p_password) > 0 then crypt(p_password, gen_salt('bf')) else password end
+    password = case when p_password is not null and length(p_password) > 0 then crypt(p_password, gen_salt('bf')) else password end,
+    gender = coalesce(p_gender, gender)
   where id = p_id;
 end;
 $$;
@@ -329,8 +347,8 @@ as $$
 $$;
 
 revoke all on function public.login(text, text) from public;
-revoke all on function public.create_agent(text, text, text, text, text) from public;
-revoke all on function public.update_agent(text, text, text, text, text) from public;
+revoke all on function public.create_agent(text, text, text, text, text, text) from public;
+revoke all on function public.update_agent(text, text, text, text, text, text) from public;
 revoke all on function public.delete_agent(text) from public;
 revoke all on function public.update_admin(text, text, text, text, text) from public;
 revoke all on function public.set_agent_admin(text, boolean) from public;
@@ -340,8 +358,8 @@ revoke all on function public.append_activity(text, jsonb, text) from public;
 revoke all on function public.append_proof(text, jsonb, text) from public;
 revoke all on function public.append_link(text, jsonb, text) from public;
 grant execute on function public.login(text, text) to anon, authenticated;
-grant execute on function public.create_agent(text, text, text, text, text) to anon, authenticated;
-grant execute on function public.update_agent(text, text, text, text, text) to anon, authenticated;
+grant execute on function public.create_agent(text, text, text, text, text, text) to anon, authenticated;
+grant execute on function public.update_agent(text, text, text, text, text, text) to anon, authenticated;
 grant execute on function public.delete_agent(text) to anon, authenticated;
 grant execute on function public.update_admin(text, text, text, text, text) to anon, authenticated;
 grant execute on function public.set_agent_admin(text, boolean) to anon, authenticated;
@@ -370,6 +388,7 @@ alter table kpi_defs enable row level security;
 alter table kpi_progress enable row level security;
 alter table reports enable row level security;
 alter table categories enable row level security;
+alter table congrats_log enable row level security;
 
 -- drop-then-create makes this file safe to run more than once.
 drop policy if exists "anon full access" on records;
@@ -378,12 +397,14 @@ drop policy if exists "anon full access" on kpi_defs;
 drop policy if exists "anon full access" on kpi_progress;
 drop policy if exists "anon full access" on reports;
 drop policy if exists "anon full access" on categories;
+drop policy if exists "anon full access" on congrats_log;
 create policy "anon full access" on records for all using (true) with check (true);
 create policy "anon full access" on logs for all using (true) with check (true);
 create policy "anon full access" on kpi_defs for all using (true) with check (true);
 create policy "anon full access" on kpi_progress for all using (true) with check (true);
 create policy "anon full access" on reports for all using (true) with check (true);
 create policy "anon full access" on categories for all using (true) with check (true);
+create policy "anon full access" on congrats_log for all using (true) with check (true);
 grant select on agents_public to anon, authenticated;
 
 -- ---------- Realtime ----------

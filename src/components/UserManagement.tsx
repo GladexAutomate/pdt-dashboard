@@ -3,13 +3,17 @@ import { createPortal } from "react-dom";
 import { Plus, Trash2, Pencil, Eye, EyeOff, Check, X, UserCog, ShieldPlus, ShieldMinus, UserX, UserCheck } from "lucide-react";
 import { C, card, inputStyle, teamColor } from "../lib/theme";
 import { Avatar, Btn, Field, Chip } from "./ui";
-import type { AppData, Agent, Team } from "../lib/types";
+import type { AppData, Agent, Team, Gender } from "../lib/types";
+
+const GENDERS: Gender[] = ["male", "female", "other"];
+const GENDER_LABEL: Record<Gender, string> = { male: "Male", female: "Female", other: "Other / prefer not to say" };
 
 export interface NewAgentInput {
   name: string;
   team: Team;
   username: string;
   password: string;
+  gender?: Gender;
 }
 
 export interface UpdateAgentInput {
@@ -17,6 +21,7 @@ export interface UpdateAgentInput {
   team?: Team;
   username?: string;
   password?: string;
+  gender?: Gender;
 }
 
 interface UserManagementProps {
@@ -48,16 +53,17 @@ function AddUserForm({ onAdd, onCancel }: { onAdd: (input: NewAgentInput) => Pro
   const [team, setTeam] = useState<Team>("Domestic");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [gender, setGender] = useState<Gender | "">("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const valid = name.trim().length > 1 && username.trim().length > 1 && password.trim().length > 3;
 
   const submit = async () => {
     setErr(""); setBusy(true);
-    const result = await onAdd({ name: name.trim(), team, username: username.trim(), password: password.trim() });
+    const result = await onAdd({ name: name.trim(), team, username: username.trim(), password: password.trim(), gender: gender || undefined });
     setBusy(false);
     if (result) { setErr(result); return; }
-    setName(""); setUsername(""); setPassword(""); onCancel();
+    setName(""); setUsername(""); setPassword(""); setGender(""); onCancel();
   };
 
   return (
@@ -72,6 +78,12 @@ function AddUserForm({ onAdd, onCancel }: { onAdd: (input: NewAgentInput) => Pro
         </Field>
         <Field label="Username"><input value={username} onChange={(e) => setUsername(e.target.value.toLowerCase())} placeholder="e.g. maria" style={inputStyle} /></Field>
         <Field label="Password"><PasswordField value={password} onChange={setPassword} placeholder="Temporary password" /></Field>
+        <Field label="Gender (optional)">
+          <select value={gender} onChange={(e) => setGender(e.target.value as Gender | "")} style={inputStyle}>
+            <option value="">Not specified</option>
+            {GENDERS.map((g) => <option key={g} value={g}>{GENDER_LABEL[g]}</option>)}
+          </select>
+        </Field>
       </div>
       {err && <div style={{ color: C.rose, fontSize: 12.5, marginTop: 8 }}>{err}</div>}
       <div className="flex gap-2 mt-3">
@@ -171,15 +183,16 @@ function UserRow({ agent, onUpdate, onRemove, onSetAdmin, onSetActive }: {
   const [team, setTeam] = useState<Team>(agent.team);
   const [username, setUsername] = useState(agent.username);
   const [password, setPassword] = useState(""); // blank = keep current password
+  const [gender, setGender] = useState<Gender | "">(agent.gender || "");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [showAdminModal, setShowAdminModal] = useState(false);
   const [showActiveModal, setShowActiveModal] = useState(false);
 
-  const startEdit = () => { setName(agent.name); setTeam(agent.team); setUsername(agent.username); setPassword(""); setErr(""); setEditing(true); };
+  const startEdit = () => { setName(agent.name); setTeam(agent.team); setUsername(agent.username); setPassword(""); setGender(agent.gender || ""); setErr(""); setEditing(true); };
   const save = async () => {
     setErr(""); setBusy(true);
-    const patch: UpdateAgentInput = { name: name.trim(), team, username: username.trim() };
+    const patch: UpdateAgentInput = { name: name.trim(), team, username: username.trim(), gender: gender || undefined };
     if (password.trim()) patch.password = password.trim();
     const result = await onUpdate(agent.id, patch);
     setBusy(false);
@@ -202,6 +215,12 @@ function UserRow({ agent, onUpdate, onRemove, onSetAdmin, onSetActive }: {
         </td>
         <td style={{ padding: "8px 10px" }}><input value={username} onChange={(e) => setUsername(e.target.value.toLowerCase())} style={{ ...inputStyle, padding: "6px 8px", fontSize: 13 }} /></td>
         <td style={{ padding: "8px 10px", minWidth: 180 }}><PasswordField value={password} onChange={setPassword} placeholder="Leave blank to keep current" /></td>
+        <td style={{ padding: "8px 10px" }}>
+          <select value={gender} onChange={(e) => setGender(e.target.value as Gender | "")} style={{ ...inputStyle, padding: "6px 8px", fontSize: 13 }}>
+            <option value="">Not specified</option>
+            {GENDERS.map((g) => <option key={g} value={g}>{GENDER_LABEL[g]}</option>)}
+          </select>
+        </td>
         <td style={{ padding: "8px 10px", whiteSpace: "nowrap" }}>
           <div className="flex gap-1.5">
             <button onClick={save} disabled={busy} title="Save" style={{ color: C.teal, background: "transparent", border: "none", cursor: "pointer" }}><Check size={16} /></button>
@@ -225,6 +244,7 @@ function UserRow({ agent, onUpdate, onRemove, onSetAdmin, onSetActive }: {
       <td style={{ padding: "10px" }}><Chip color={teamColor(agent.team)} soft={agent.team === "Domestic" ? "#FBEAE4" : "#E7EDFB"}>{agent.team}</Chip></td>
       <td style={{ padding: "10px", fontSize: 13 }}>@{agent.username}</td>
       <td style={{ padding: "10px", fontSize: 12.5, color: C.sub }}>••••••••</td>
+      <td style={{ padding: "10px", fontSize: 12.5, color: C.sub }}>{agent.gender ? GENDER_LABEL[agent.gender] : "—"}</td>
       <td style={{ padding: "10px", whiteSpace: "nowrap" }}>
         <div className="flex gap-1.5">
           <button onClick={startEdit} title="Edit / reset password" style={{ color: C.sub, background: "transparent", border: "none", cursor: "pointer" }}><Pencil size={15} /></button>
@@ -268,13 +288,13 @@ export function UserManagement({ data, addAgent, updateAgent, removeAgent, setAg
           <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 640 }}>
             <thead>
               <tr style={{ background: C.paper }}>
-                {["Name", "Team", "Username", "Password", ""].map((h) => (
+                {["Name", "Team", "Username", "Password", "Gender", ""].map((h) => (
                   <th key={h} style={{ textAlign: "left", fontSize: 11, letterSpacing: 0.4, textTransform: "uppercase", color: C.sub, fontWeight: 700, padding: "10px", borderBottom: `1px solid ${C.line}`, whiteSpace: "nowrap" }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {sorted.length === 0 && <tr><td colSpan={5} style={{ padding: 18, color: C.sub, fontSize: 13 }}>No users yet.</td></tr>}
+              {sorted.length === 0 && <tr><td colSpan={6} style={{ padding: 18, color: C.sub, fontSize: 13 }}>No users yet.</td></tr>}
               {sorted.map((a) => <UserRow key={a.id} agent={a} onUpdate={updateAgent} onRemove={removeAgent} onSetAdmin={setAgentAdmin} onSetActive={setAgentActive} />)}
             </tbody>
           </table>
