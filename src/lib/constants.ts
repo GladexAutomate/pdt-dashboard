@@ -30,7 +30,7 @@ export const KPI_STAFF: KpiStaffEntry[] = [
   { id: "angelee", name: "Angelee", team: "International", agentId: "a4" },
   { id: "patty", name: "Patty", team: "International", agentId: "a6" },
   { id: "krisha", name: "Krisha", team: "International", agentId: "a7" },
-  { id: "celine", name: "Celine", team: "International", agentId: "a8" },
+  { id: "celine", name: "Celine", team: "International", agentId: "a5" },
   { id: "roselle", name: "Roselle", team: "Domestic", agentId: "a3" },
   { id: "jessy", name: "Jessy", team: "Domestic", agentId: "a2" },
   { id: "anne", name: "Anne", team: "Domestic", agentId: "a1" }
@@ -99,13 +99,13 @@ export const PRIORITY_META: Record<Priority, StyleMeta> = {
 /* ---------- Project / file trackers ---------- */
 export const TRACKERS: Record<"premium" | "gladex" | "tariff", TrackerConfig> = {
   premium: { label: "PREMIUM Projects", sub: "POTB · Product-of-the-Week premium projects", titleLabel: "Project Title",
-    columns: ["title", "category", "priority", "status", "progress", "assignee", "team", "start", "due", "updated"],
-    addFields: ["title", "category", "destination", "priority", "assignee", "start", "due", "description"] },
+  columns: ["title", "category", "priority", "status", "progress", "assignee", "team", "start", "due", "updated"],
+  addFields: ["title", "category", "destination", "priority", "assignee", "start", "due", "description"] },
   gladex: { label: "GLADEX Projects", sub: "Internal GLADEX department projects", titleLabel: "Project Name",
-    columns: ["title", "department", "assignee", "priority", "status", "progress", "start", "due", "updated"],
-    addFields: ["title", "department", "priority", "assignee", "start", "due", "description"] },
+  columns: ["title", "department", "assignee", "priority", "status", "progress", "start", "due", "updated"],
+  addFields: ["title", "department", "priority", "assignee", "start", "due", "description"] },
   tariff: { label: "Tariff File Monitoring", sub: "Daily tariff file updates submitted per staff member", titleLabel: "Tariff File Name",
-    columns: ["title", "assignee", "team", "category", "priority", "status", "progress", "start", "due", "updated"],
-    addFields: ["title", "category", "priority", "assignee", "start", "due", "description"] }
+  columns: ["title", "assignee", "team", "category", "priority", "status", "progress", "start", "due", "updated"],
+  addFields: ["title", "category", "priority", "assignee", "start", "due", "description"] }
 };
 export const COL_LABEL: Record<string, string> = { title: "Title", category: "Category", department: "Department", destination: "Destination", assignee: "Assigned To", team: "Team", priority: "Priority", status: "Status", progress: "Progress", start: "Start Date", due: "Due Date", updated: "Last Updated" };

@@ -3,8 +3,8 @@ import { COLLECTIONS } from "./constants";
 import type {
   AppData, Agent, TaskRecord, LogEntry, KpiDef, ReportState, ColKey,
   Status, Priority, ProofItem, CommentEntry, ActivityEntry, LinkItem,
-  Team, LoginResult, Category, Gender
-} from "./types";
+  ChecklistItem, Team, LoginResult, Category, Gender
+} from "./types"; 
 
 /* ---------- timestamp helpers (DB uses ISO strings, the app uses epoch ms) ---------- */
 const toIso = (ms: number | null | undefined): string | null => (ms == null ? null : new Date(ms).toISOString());
@@ -37,6 +37,7 @@ interface RecordRow {
   description: string | null;
   links: LinkItem[] | null;
   proof: ProofItem[] | null;
+  checklist: ChecklistItem[] | null;
   proof_count: number | null;
   comments: CommentEntry[] | null;
   activity: ActivityEntry[] | null;
@@ -73,6 +74,7 @@ function rowToRecord(row: RecordRow): TaskRecord {
     description: row.description ?? undefined,
     links: row.links ?? [],
     proof: row.proof ?? [],
+    checklist: row.checklist ?? [],
     proofCount: row.proof_count ?? 0,
     comments: row.comments ?? [],
     activity: row.activity ?? [],
@@ -110,6 +112,7 @@ function recordPatchToRow(patch: Partial<TaskRecord>): Record<string, unknown> {
   if ("description" in patch) row.description = patch.description;
   if ("links" in patch) row.links = patch.links;
   if ("proof" in patch) row.proof = patch.proof;
+  if ("checklist" in patch) row.checklist = patch.checklist;
   if ("proofCount" in patch) row.proof_count = patch.proofCount;
   if ("comments" in patch) row.comments = patch.comments;
   if ("activity" in patch) row.activity = patch.activity;
@@ -126,7 +129,7 @@ function recordPatchToRow(patch: Partial<TaskRecord>): Record<string, unknown> {
 // dashboard load doesn't scale. `proof_count` (already a separate column)
 // covers every place that just needs the count; the full array is fetched
 // on demand for one record at a time, see fetchRecordProof below.
-const RECORD_COLUMNS_NO_PROOF = "id,collection,agent_id,title,category,department,destination,team,status,priority,progress,start_date,due_date,started_at,completed_at,estimated_hours,items_total,items_error,special,target,requirements,remarks,description,links,proof_count,comments,activity,collaborator_ids,assigned_by,completed_by,updated_at,updated_by";
+const RECORD_COLUMNS_NO_PROOF = "id,collection,agent_id,title,category,department,destination,team,status,priority,progress,start_date,due_date,started_at,completed_at,estimated_hours,items_total,items_error,special,target,requirements,remarks,description,links,proof_count,comments,activity,collaborator_ids,assigned_by,completed_by,updated_at,updated_by,checklist";
 
 /* ---------- full app data load ---------- */
 export async function fetchAppData(): Promise<AppData> {
@@ -211,6 +214,10 @@ export async function appendProof(id: string, item: ProofItem, updatedBy: string
 }
 export async function appendLink(id: string, link: LinkItem, updatedBy: string): Promise<void> {
   const { error } = await supabase.rpc("append_link", { p_record_id: id, p_link: link, p_updated_by: updatedBy });
+  if (error) throw error;
+}
+export async function appendChecklistItem(id: string, item: ChecklistItem, updatedBy: string): Promise<void> {
+  const { error } = await supabase.rpc("append_checklist_item", { p_record_id: id, p_item: item, p_updated_by: updatedBy });
   if (error) throw error;
 }
 

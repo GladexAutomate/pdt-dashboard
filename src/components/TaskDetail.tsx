@@ -1,24 +1,16 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   X, Sparkles, MapPin, Link2, Paperclip, MessageSquare, FileText, Target,
   ExternalLink, Plus, Send, Trash2, CalendarCheck, Image as ImageIcon,
-  ArrowRightLeft, Activity, History, GitBranch, Users
+  ArrowRightLeft, Activity, History, Users, ListChecks
 } from "lucide-react";
 import { C, inputStyle, dateInputStyle, lbl, selStyleBtn, catC } from "../lib/theme";
-import { STATUS_META, PRIORITY_META, PRIORITIES, DONEISH, TRACKERS } from "../lib/constants";
-import { relTime, fmtDay, toDateInput, fromDateInput, dueMeta, normUrl, resizeImage, readFileDataUrl, trackerColForCategory } from "../lib/helpers";
-import { Chip, Btn, ProgressBar, StatusSelect, PrioritySelect, AssigneeSelect, DetailSection, EditableArea } from "./ui";
-import type { TaskRecord, AppData, Actor, Status, Priority, ProofItem, CommentEntry, ActivityEntry, LinkItem, ColKey } from "../lib/types";
+import { STATUS_META, PRIORITY_META, DONEISH, TRACKERS } from "../lib/constants";
+import { relTime, fmtDay, toDateInput, fromDateInput, dueMeta, normUrl, resizeImage, readFileDataUrl, trackerColForCategory, flattenRecords } from "../lib/helpers";
+import { Chip, Btn, ProgressBar, StatusSelect, PrioritySelect, DetailSection, EditableArea } from "./ui";
+import type { TaskRecord, AppData, Actor, Status, ProofItem, CommentEntry, ActivityEntry, LinkItem, ChecklistItem, ColKey } from "../lib/types";
 
 type TimelineItem = (CommentEntry & { kind: "comment" }) | (ActivityEntry & { kind: "event" });
-
-export interface FollowUpInput {
-  title: string;
-  category: string;
-  priority: Priority;
-  agentId: string;
-  dueDate: number | null;
-}
 
 interface TaskDetailProps {
   task: TaskRecord;
@@ -29,18 +21,18 @@ interface TaskDetailProps {
   onClose: () => void;
   updateTask: (id: string, patch: Partial<TaskRecord>) => void;
   setStatus: (id: string, status: Status) => void;
-  reassignTask: (id: string, agentId: string) => void;
   addComment: (id: string, text: string) => void;
   pushActivity: (id: string, type: string, text: string) => void;
   appendProof: (id: string, item: ProofItem) => void;
   appendLink: (id: string, link: LinkItem) => void;
+  appendChecklistItem: (id: string, item: ChecklistItem) => void;
+  createChecklistTask: (input: { text: string; assigneeId: string; category: string; targetCol: ColKey }) => void;
   deleteTask: (id: string) => void;
-  createFollowUp: (input: FollowUpInput) => void;
   onGoToTracker?: (col: ColKey) => void;
 }
 
 /* ---------------- Task detail drawer ---------------- */
-export function TaskDetail({ task, data, actor, canEdit, onClose, updateTask, setStatus, reassignTask, addComment, pushActivity, appendProof, appendLink, deleteTask, createFollowUp, onGoToTracker }: TaskDetailProps) {
+export function TaskDetail({ task, data, actor, canEdit, onClose, updateTask, setStatus, addComment, pushActivity, appendProof, appendLink, appendChecklistItem, createChecklistTask, deleteTask, onGoToTracker }: TaskDetailProps) {
   const t = task;
   const [proof, setProof] = useState<ProofItem[]>(task.proof || []);
   const [err, setErr] = useState("");
@@ -50,8 +42,18 @@ export function TaskDetail({ task, data, actor, canEdit, onClose, updateTask, se
   const [linkUrl, setLinkUrl] = useState("");
   const [proofLabel, setProofLabel] = useState("");
   const [proofUrl, setProofUrl] = useState("");
-  const [showFollowUp, setShowFollowUp] = useState(false);
+  const [checklistText, setChecklistText] = useState("");
+  const [checklistAssignee, setChecklistAssignee] = useState("");
+  const [checklistCategory, setChecklistCategory] = useState(t.category || data.categories[0]?.name || "");
+  const allRecords = useMemo(() => flattenRecords(data), [data]);
   const [addCollabId, setAddCollabId] = useState("");
+
+  const TRACKER_TARGETS: { value: ColKey; label: string }[] = [
+    { value: "tasks", label: "Tasks" }, { value: "daily", label: "Daily Tasking" },
+    { value: "premium", label: "PREMIUM" }, { value: "gladex", label: "GLADEX" }, { value: "tariff", label: "Tariff" }
+  ];
+
+  const [checklistTarget, setChecklistTarget] = useState<ColKey>("daily");
 
   // proof isn't part of the bulk dashboard load (see api.ts) — App.tsx
   // fetches it just for this task once the drawer opens, so re-sync once
@@ -101,6 +103,36 @@ export function TaskDetail({ task, data, actor, canEdit, onClose, updateTask, se
     setLinkLabel(""); setLinkUrl("");
   };
   const removeLink = (id: string) => updateTask(t.id, { links: (t.links || []).filter((l) => l.id !== id) });
+
+  const addChecklistItem = () => {
+    if (!checklistText.trim()) return;
+    if (checklistAssignee) {
+      const category = checklistCategory || t.category || data.categories[0]?.name || "";
+      const targetCol = trackerColForCategory(category) || "daily";
+      createChecklistTask({ text: checklistText.trim(), assigneeId: checklistAssignee, category, targetCol });
+      setChecklistAssignee("");
+    } else {
+      const item: ChecklistItem = { id: "ck" + Date.now(), text: checklistText.trim(), done: false, ts: Date.now(), by: actor.name };
+      appendChecklistItem(t.id, item);
+      pushActivity(t.id, "checklist", `Added checklist item: ${item.text}`);
+    }
+    setChecklistText("");
+  };
+  const toggleChecklistItem = (id: string) => {
+    const item = (t.checklist || []).find((c) => c.id === id);
+    if (!item || item.linkedTaskId) return; // linked items track their own task's status, not a manual toggle
+    updateTask(t.id, { checklist: (t.checklist || []).map((c) => (c.id === id ? { ...c, done: !c.done } : c)) });
+    pushActivity(t.id, "checklist", `${item.done ? "Unchecked" : "Checked off"}: ${item.text}`);
+  };
+  const removeChecklistItem = (id: string) => {
+    const item = (t.checklist || []).find((c) => c.id === id);
+    updateTask(t.id, { checklist: (t.checklist || []).filter((c) => c.id !== id) });
+    if (item) pushActivity(t.id, "checklist", `Removed checklist item: ${item.text}`);
+  };
+  const checklistDone = (t.checklist || []).filter((c) => {
+    if (c.linkedTaskId) { const lt = allRecords.find((r) => r.id === c.linkedTaskId); return lt ? DONEISH(lt.status) : false; }
+    return c.done;
+  }).length;
 
   const availableCollabs = data.agents.filter((a) => a.isActive && a.id !== t.agentId && !(t.collaboratorIds || []).includes(a.id));
   const addCollaborator = () => {
@@ -171,8 +203,8 @@ export function TaskDetail({ task, data, actor, canEdit, onClose, updateTask, se
             </div>
             <div><div style={lbl}>Status</div>{canEdit ? <StatusSelect value={t.status} onChange={(s) => setStatus(t.id, s)} /> : <Chip color={STATUS_META[t.status].c} soft={STATUS_META[t.status].soft}>{STATUS_META[t.status].txt}</Chip>}</div>
             <div><div style={lbl}>Priority</div>{canEdit ? <PrioritySelect value={t.priority || "medium"} onChange={(p) => { updateTask(t.id, { priority: p }); }} /> : <Chip color={pm.c} soft={pm.soft}>{pm.txt}</Chip>}</div>
-            <div><div style={lbl}>Assignee {canEdit && <span style={{ color: C.sub, fontWeight: 400 }}>· reassign / handover</span>}</div>
-              {canEdit ? <AssigneeSelect value={t.agentId} agents={data.agents} onChange={(nid) => reassignTask(t.id, nid)} /> : <span style={{ fontSize: 13, fontWeight: 600 }}>{data.agents.find((a) => a.id === t.agentId)?.name}</span>}
+            <div><div style={lbl}>Assignee</div>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>{data.agents.find((a) => a.id === t.agentId)?.name || "Unassigned"}</span>
             </div>
           </div>
 
@@ -193,7 +225,7 @@ export function TaskDetail({ task, data, actor, canEdit, onClose, updateTask, se
           {/* collaborators */}
           <DetailSection icon={<Users size={15} color={C.ink} />} title={`Collaborators${(t.collaboratorIds || []).length ? ` (${(t.collaboratorIds || []).length})` : ""}`}>
             <div style={{ fontSize: 12, color: C.sub, marginBottom: 8 }}>
-              Add someone else who's genuinely working this ticket alongside the assignee — they get full edit access to this exact task. For separate work that should be tracked under someone else's own name, use "Create follow-up task" below instead.
+              Add a plain note, or pick someone to assign it to — assigning turns it into a real ticket in their Pending. Pick a category (e.g. a Tariff category) and it'll automatically land on the matching board.
             </div>
             <div className="flex gap-2 flex-wrap mb-2">
               {(t.collaboratorIds || []).length === 0 && <div style={{ fontSize: 12.5, color: C.sub }}>No collaborators yet.</div>}
@@ -229,6 +261,51 @@ export function TaskDetail({ task, data, actor, canEdit, onClose, updateTask, se
               <div><div style={lbl}>Requirements</div><EditableArea disabled={ro} value={t.requirements} placeholder="What's needed…" onSave={(v) => updateTask(t.id, { requirements: v })} rows={2} /></div>
               <div><div style={lbl}>Remarks</div><EditableArea disabled={ro} value={t.remarks} placeholder="Notes…" onSave={(v) => updateTask(t.id, { remarks: v })} rows={2} /></div>
             </div>
+          </DetailSection>
+
+          {/* checklist */}
+          <DetailSection icon={<ListChecks size={15} color={C.ink} />} title={`Checklist${(t.checklist || []).length ? ` (${checklistDone}/${(t.checklist || []).length})` : ""}`}>
+            <div style={{ fontSize: 12, color: C.sub, marginBottom: 8 }}>
+              Add a plain note, or pick someone to assign it to — assigning turns it into a real ticket in their Pending, with its own category.
+            </div>
+            <div className="space-y-1.5">
+              {(t.checklist || []).length === 0 && <div style={{ fontSize: 12.5, color: C.sub }}>No checklist items yet.</div>}
+              {(t.checklist || []).map((c) => {
+                const linkedTask = c.linkedTaskId ? allRecords.find((r) => r.id === c.linkedTaskId) : null;
+                const assigneeName = c.assigneeId ? data.agents.find((a) => a.id === c.assigneeId)?.name : null;
+                const isDone = linkedTask ? DONEISH(linkedTask.status) : c.done;
+                const sm = linkedTask ? STATUS_META[linkedTask.status] : null;
+                return (
+                  <div key={c.id} className="flex items-center justify-between gap-2" style={{ background: C.paper, borderRadius: 8, padding: "7px 10px" }}>
+                    <div className="flex items-center gap-2 flex-wrap" style={{ flex: 1, minWidth: 0 }}>
+                      {linkedTask
+                        ? <span style={{ width: 9, height: 9, borderRadius: 999, background: sm!.c, flexShrink: 0 }} />
+                        : <input type="checkbox" checked={c.done} disabled={!canEdit} onChange={() => canEdit && toggleChecklistItem(c.id)} />}
+                      <span style={{ fontSize: 13, textDecoration: isDone ? "line-through" : "none", color: isDone ? C.sub : C.text }}>{c.text}</span>
+                      {assigneeName && <Chip color={C.international} soft="#E7EDFB">{assigneeName}</Chip>}
+                      {c.category && <Chip color={catC(c.category, data.categories)} soft={C.paper}>{c.category}</Chip>}
+                      {linkedTask && <Chip color={sm!.c} soft={sm!.soft}>{sm!.txt}</Chip>}
+                    </div>
+                    {canEdit && <button onClick={() => removeChecklistItem(c.id)} title={linkedTask ? "Remove from checklist (doesn't delete their ticket)" : "Remove"} style={{ background: "transparent", border: "none", cursor: "pointer", color: C.sub, flexShrink: 0 }}><X size={14} /></button>}
+                  </div>
+                );
+              })}
+            </div>
+            {canEdit && (
+              <div className="flex gap-2 mt-2 flex-wrap">
+                <input value={checklistText} onChange={(e) => setChecklistText(e.target.value)} placeholder="Add a checklist item…" onKeyDown={(e) => e.key === "Enter" && addChecklistItem()} style={{ ...inputStyle, flex: "2 1 160px", padding: "7px 9px" }} />
+                <select value={checklistAssignee} onChange={(e) => setChecklistAssignee(e.target.value)} style={{ ...inputStyle, flex: "1 1 150px", padding: "7px 9px" }}>
+                  <option value="">No assignee (just a note)</option>
+                  {data.agents.filter((a) => a.isActive).map((a) => <option key={a.id} value={a.id}>{a.name} · {a.team}</option>)}
+                </select>
+                {checklistAssignee && (
+                  <select value={checklistCategory} onChange={(e) => setChecklistCategory(e.target.value)} style={{ ...inputStyle, flex: "1 1 140px", padding: "7px 9px" }}>
+                    {data.categories.map((cat) => <option key={cat.id} value={cat.name}>{cat.name}</option>)}
+                  </select>
+                )}
+                <Btn sm kind="ghost" icon={<Plus size={13} />} onClick={addChecklistItem}>Add</Btn>
+              </div>
+            )}
           </DetailSection>
 
           {/* links */}
@@ -314,77 +391,11 @@ export function TaskDetail({ task, data, actor, canEdit, onClose, updateTask, se
           </DetailSection>
 
           {canEdit && (
-            <DetailSection icon={<GitBranch size={15} color={C.ink} />} title="Follow-up task">
-              <div style={{ fontSize: 12, color: C.sub, marginBottom: showFollowUp ? 10 : 8 }}>
-                Use this when someone else needs to pick up a distinct part of this work — it creates a separate task so their hours and completion get tracked under their own name, with a link back to this one.
-              </div>
-              {!showFollowUp ? (
-                <Btn sm kind="ghost" icon={<Plus size={13} />} onClick={() => setShowFollowUp(true)}>Create follow-up task</Btn>
-              ) : (
-                <FollowUpForm data={data} original={t} defaultAgentId={actor.id !== "admin" ? actor.id : undefined}
-                  onCreate={(input) => { createFollowUp(input); setShowFollowUp(false); }}
-                  onCancel={() => setShowFollowUp(false)} />
-              )}
-            </DetailSection>
-          )}
-
-          {canEdit && (
             <div className="flex justify-end" style={{ borderTop: `1px solid ${C.line}`, paddingTop: 14 }}>
               <Btn sm kind="danger" icon={<Trash2 size={13} />} onClick={() => { if (window.confirm(`Delete "${t.title}"? This can't be undone.`)) deleteTask(t.id); }}>Delete task</Btn>
             </div>
           )}
         </div>
-      </div>
-    </div>
-  );
-}
-
-function FollowUpForm({ data, original, defaultAgentId, onCreate, onCancel }: {
-  data: AppData; original: TaskRecord; defaultAgentId?: string; onCreate: (input: FollowUpInput) => void; onCancel: () => void;
-}) {
-  const [title, setTitle] = useState(original.title);
-  const [category, setCategory] = useState(original.category || data.categories[0]?.name || "");
-  const [priority, setPriority] = useState<Priority>(original.priority || "medium");
-  const [agentId, setAgentId] = useState(defaultAgentId || data.agents[0]?.id || "");
-  const [due, setDue] = useState("");
-  const valid = title.trim().length > 1 && !!agentId;
-
-  return (
-    <div style={{ background: C.paper, borderRadius: 11, padding: 12 }}>
-      <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))" }}>
-        <div style={{ gridColumn: "1 / -1" }}>
-          <div style={lbl}>Task title</div>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. BOT setup for Hanoi - Sapa" style={inputStyle} />
-        </div>
-        <div>
-          <div style={lbl}>Assign to</div>
-          <select value={agentId} onChange={(e) => setAgentId(e.target.value)} style={inputStyle}>
-            {data.agents.map((a) => <option key={a.id} value={a.id}>{a.name} · {a.team}</option>)}
-          </select>
-        </div>
-        <div>
-          <div style={lbl}>Category</div>
-          <select value={category} onChange={(e) => setCategory(e.target.value)} style={inputStyle}>
-            {data.categories.map((c) => <option key={c.id}>{c.name}</option>)}
-          </select>
-        </div>
-        <div>
-          <div style={lbl}>Priority</div>
-          <select value={priority} onChange={(e) => setPriority(e.target.value as Priority)} style={inputStyle}>
-            {PRIORITIES.map((p) => <option key={p} value={p}>{PRIORITY_META[p].txt}</option>)}
-          </select>
-        </div>
-        <div>
-          <div style={lbl}>Due date</div>
-          <input type="date" value={due} onChange={(e) => setDue(e.target.value)} style={inputStyle} />
-        </div>
-      </div>
-      <div className="flex gap-2 mt-3">
-        <Btn sm kind="teal" disabled={!valid} icon={<Plus size={13} />}
-          onClick={() => onCreate({ title: title.trim(), category, priority, agentId, dueDate: fromDateInput(due) })}>
-          Create follow-up
-        </Btn>
-        <Btn sm kind="ghost" onClick={onCancel}>Cancel</Btn>
       </div>
     </div>
   );

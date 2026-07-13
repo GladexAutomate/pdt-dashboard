@@ -3,7 +3,7 @@ import { Users, ScrollText, MapPin, Globe, ChevronRight, ArrowLeft, Filter, Spar
 import { C, card, catC, teamColor, cellStyle, dateInputStyle } from "../lib/theme";
 import { STATUSES, STATUS_META, STATUS_ORDER, PRIORITIES, PRIORITY_META, DEAD, D } from "../lib/constants";
 import { agentStats, groupStats, speedLabel, pct, dueMeta, toDateInput, fromDateInput, myWorkPool } from "../lib/helpers";
-import { Avatar, Chip, Stat, AssigneeSelect, PrioritySelect, StatusSelect, ProgressBar, EditableText } from "./ui";
+import { Avatar, Chip, Stat, PrioritySelect, StatusSelect, ProgressBar, EditableText } from "./ui";
 import type { AppData, Agent, TaskRecord, Team, Status, Priority, Category } from "../lib/types";
 
 interface TeamsProps {
@@ -13,12 +13,11 @@ interface TeamsProps {
   openMember: (id: string) => void;
   setStatus: (id: string, status: Status) => void;
   updateTask: (id: string, patch: Partial<TaskRecord>) => void;
-  reassignTask: (id: string, agentId: string) => void;
   openDetail: (id: string) => void;
 }
 
 /* ---------------- Teams + member list ---------------- */
-export function Teams({ data, selTeam, setSelTeam, openMember, setStatus, updateTask, reassignTask, openDetail }: TeamsProps) {
+export function Teams({ data, selTeam, setSelTeam, openMember, setStatus, updateTask, openDetail }: TeamsProps) {
   const [view, setView] = useState("members");
   const pool = myWorkPool(data);
   if (!selTeam) {
@@ -101,7 +100,7 @@ export function Teams({ data, selTeam, setSelTeam, openMember, setStatus, update
           </div>
         </div>
       ) : (
-        <TeamTable team={selTeam} members={members} allAgents={data.agents} tasks={teamTasks} categories={data.categories} setStatus={setStatus} updateTask={updateTask} reassignTask={reassignTask} openDetail={openDetail} />
+        <TeamTable team={selTeam} members={members} allAgents={data.agents} tasks={teamTasks} categories={data.categories} setStatus={setStatus} updateTask={updateTask} openDetail={openDetail} />
       )}
     </div>
   );
@@ -115,12 +114,11 @@ interface TeamTableProps {
   categories: Category[];
   setStatus: (id: string, status: Status) => void;
   updateTask: (id: string, patch: Partial<TaskRecord>) => void;
-  reassignTask: (id: string, agentId: string) => void;
   openDetail: (id: string) => void;
 }
 
 /* ---------------- Per-team task table ---------------- */
-function TeamTable({ members, allAgents, tasks, categories, setStatus, updateTask, reassignTask, openDetail }: TeamTableProps) {
+function TeamTable({ members, allAgents, tasks, categories, setStatus, updateTask, openDetail }: TeamTableProps) {
   const [fStatus, setFStatus] = useState<Status | "all">("all");
   const [fStaff, setFStaff] = useState("all");
   const [fPriority, setFPriority] = useState<Priority | "all">("all");
@@ -198,7 +196,7 @@ function TeamTable({ members, allAgents, tasks, categories, setStatus, updateTas
                         </div>
                       </div>
                     </td>
-                    <td style={cellStyle}>{a && <AssigneeSelect value={t.agentId} agents={allAgents} onChange={(nid) => reassignTask(t.id, nid)} />}</td>
+                    <td style={cellStyle}>{a ? a.name : <span style={{ color: C.sub }}>Unassigned</span>}</td>
                     <td style={cellStyle}><PrioritySelect value={t.priority || "medium"} onChange={(p) => updateTask(t.id, { priority: p })} /></td>
                     <td style={cellStyle}><input type="date" value={toDateInput(t.startDate)} onChange={(e) => updateTask(t.id, { startDate: fromDateInput(e.target.value) })} style={dateInputStyle} /></td>
                     <td style={cellStyle}>

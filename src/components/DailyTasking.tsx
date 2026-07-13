@@ -4,7 +4,7 @@ import {
 } from "lucide-react";
 import { C, card, catC, teamColor, inputStyle } from "../lib/theme";
 import { PRIORITIES, PRIORITY_META, STATUS_META, DONEISH, DEAD } from "../lib/constants";
-import { toDateInput, fromDateInput, downloadCSV, dueMeta, fmtDay } from "../lib/helpers";
+import { toDateInput, fromDateInput, downloadCSV, dueMeta, fmtDay, flattenRecords } from "../lib/helpers";
 import { claimCongrats } from "../lib/api";
 import { Avatar, Chip, Btn, Field } from "./ui";
 import { CongratsModal } from "./Congrats";
@@ -21,7 +21,7 @@ interface DailyTaskingProps {
   addRec: (col: ColKey, r: Partial<TaskRecord>) => void;
   setRecStatus: (col: ColKey, id: string, status: Status) => void;
   deleteRec: (col: ColKey, id: string) => void;
-  openDetail: (id: string) => void;
+  openDetail: (id: string, col?: ColKey) => void;
 }
 
 /* ---------------- Daily Tasking (admin: everyone · agent: own only) ----------------
@@ -44,7 +44,7 @@ export function DailyTasking({ data, isAdmin, meId, addRec, setRecStatus, delete
   // so someone added as a collaborator after the fact (or who never touched
   // it before it got finished) doesn't inherit someone else's completed work
   // or hours on their own EOD.
-  const dailyFor = (agent: Agent) => (data.daily || []).filter((d) =>
+  const dailyFor = (agent: Agent) => flattenRecords(data).filter((d) =>
     toDateInput(d.dueDate) === date && (
       DONEISH(d.status) && d.completedBy
         ? d.completedBy === agent.name
@@ -57,7 +57,7 @@ export function DailyTasking({ data, isAdmin, meId, addRec, setRecStatus, delete
   // with a due date of tomorrow (and high priority) shows up here right
   // away and keeps floating near the top until it's dealt with.
   const prRank = (p?: Priority) => PRIORITIES.indexOf(p || "medium");
-  const pendingFor = (agent: Agent) => (data.daily || [])
+  const pendingFor = (agent: Agent) => flattenRecords(data)
     .filter((d) => !DONEISH(d.status) && !DEAD(d.status) && (d.agentId === agent.id || (d.collaboratorIds || []).includes(agent.id)))
     .sort((a, b) => prRank(a.priority) - prRank(b.priority) || (a.dueDate ?? Infinity) - (b.dueDate ?? Infinity));
   const totalPending = shown.reduce((sum, a) => sum + pendingFor(a).length, 0);
@@ -122,7 +122,7 @@ export function DailyTasking({ data, isAdmin, meId, addRec, setRecStatus, delete
           {shown.map((staff) => (
             <DailyStaffCard key={staff.id} staff={staff} tasks={dailyFor(staff)} date={date} categories={data.categories}
               canEdit={isAdmin || staff.id === meId} isAdmin={isAdmin} isSelf={!isAdmin && staff.id === meId}
-              onStatus={(id, status) => setRecStatus(COL, id, status)} onDelete={(id) => deleteRec(COL, id)} onOpen={openDetail} />
+              onStatus={(id, status, col) => setRecStatus(col, id, status)} onDelete={(id, col) => deleteRec(col, id)} onOpen={(id, col) => openDetail(id, col)} />
           ))}
         </>
       ) : (
@@ -130,7 +130,7 @@ export function DailyTasking({ data, isAdmin, meId, addRec, setRecStatus, delete
           {shown.map((staff) => (
             <PendingStaffCard key={staff.id} staff={staff} tasks={pendingFor(staff)} categories={data.categories}
               canEdit={isAdmin || staff.id === meId} isAdmin={isAdmin}
-              onStatus={(id, status) => setRecStatus(COL, id, status)} onDelete={(id) => deleteRec(COL, id)} onOpen={openDetail} />
+              onStatus={(id, status, col) => setRecStatus(col, id, status)} onDelete={(id, col) => deleteRec(col, id)} onOpen={(id, col) => openDetail(id, col)} />
           ))}
         </>
       )}
@@ -193,7 +193,7 @@ function AssignDailyForm({ agents, categories, date, fixedAgentId, onAssign, onC
 
 function DailyStaffCard({ staff, tasks, date, categories, canEdit, isAdmin, isSelf, onStatus, onDelete, onOpen }: {
   staff: Agent; tasks: TaskRecord[]; date: string; categories: Category[]; canEdit: boolean; isAdmin: boolean; isSelf?: boolean;
-  onStatus: (id: string, status: Status) => void; onDelete: (id: string) => void; onOpen: (id: string) => void;
+  onStatus: (id: string, status: Status, col: ColKey) => void; onDelete: (id: string, col: ColKey) => void; onOpen: (id: string, col: ColKey) => void;
 }) {
   const [showEod, setShowEod] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
@@ -294,28 +294,30 @@ function DailyStaffCard({ staff, tasks, date, categories, canEdit, isAdmin, isSe
 
 function DailyTaskRow({ t, categories, canEdit, isAdmin, onStatus, onDelete, onOpen, showDue }: {
   t: TaskRecord; categories: Category[]; canEdit: boolean; isAdmin: boolean;
-  onStatus: (id: string, status: Status) => void; onDelete: (id: string) => void; onOpen: (id: string) => void; showDue?: boolean;
+  onStatus: (id: string, status: Status, col: ColKey) => void; onDelete: (id: string, col: ColKey) => void; onOpen: (id: string, col: ColKey) => void; showDue?: boolean;
 }) {
   const m = STATUS_META[t.status];
   const pm = PRIORITY_META[t.priority || "medium"];
   const dm = dueMeta(t);
+  const col = t._col || "daily";
   return (
     <div className="flex items-center justify-between flex-wrap gap-2" style={{ background: C.paper, borderRadius: 10, padding: "8px 11px", opacity: DEAD(t.status) ? 0.6 : 1 }}>
       <div className="flex items-center gap-2 flex-wrap" style={{ minWidth: 0 }}>
         <span style={{ width: 8, height: 8, borderRadius: 3, background: catC(t.category, categories), flexShrink: 0 }} />
-        <button onClick={() => onOpen(t.id)} style={{ fontWeight: 600, fontSize: 13.5, background: "transparent", border: "none", padding: 0, cursor: "pointer", color: C.text, textAlign: "left" }}>{t.title}</button>
+        <button onClick={() => onOpen(t.id, col)} style={{ fontWeight: 600, fontSize: 13.5, background: "transparent", border: "none", padding: 0, cursor: "pointer", color: C.text, textAlign: "left" }}>{t.title}</button>
         <Chip color={pm.c} soft={pm.soft} icon={<Flag size={9} />}>{pm.txt}</Chip>
         <Chip color={m.c} soft={m.soft}>{m.txt}</Chip>
+        {t._col && t._col !== "daily" && <span style={{ fontSize: 10.5, color: C.sub, fontWeight: 600, textTransform: "uppercase" }}>{t._col}</span>}
         {t.completedAt && <span style={{ fontSize: 11.5, color: C.sub }} className="flex items-center gap-1"><Clock size={11} /> {fmtClock(t.completedAt)}</span>}
         {showDue && t.dueDate && <span className="flex items-center gap-1" style={{ fontSize: 11.5, color: dm && dm.over ? C.rose : C.sub, fontWeight: dm && dm.over ? 700 : 400 }}><Clock size={11} /> due {fmtDay(t.dueDate)}{dm && dm.label ? ` · ${dm.label}` : ""}</span>}
       </div>
       <div className="flex items-center gap-1.5">
-        {canEdit && t.status === "pending" && <Btn sm kind="ghost" icon={<Play size={12} />} onClick={() => onStatus(t.id, "in_progress")}>Start</Btn>}
-        {canEdit && t.status === "in_progress" && <Btn sm kind="ghost" icon={<Pause size={12} />} onClick={() => onStatus(t.id, "on_hold")}>Pause</Btn>}
-        {canEdit && t.status === "on_hold" && <Btn sm kind="ghost" icon={<Play size={12} />} onClick={() => onStatus(t.id, "in_progress")}>Resume</Btn>}
-        {canEdit && t.status === "in_progress" && <Btn sm kind="ghost" icon={<CheckCircle2 size={12} />} onClick={() => onStatus(t.id, "completed")}>Complete</Btn>}
-        {canEdit && t.status === "completed" && <Btn sm kind="teal" icon={<Send size={12} />} onClick={() => onStatus(t.id, "published")}>Publish</Btn>}
-        {isAdmin && <button onClick={() => onDelete(t.id)} title="Remove" style={{ color: C.rose, background: "none", border: "none", cursor: "pointer" }}><Trash2 size={14} /></button>}
+        {canEdit && t.status === "pending" && <Btn sm kind="ghost" icon={<Play size={12} />} onClick={() => onStatus(t.id, "in_progress", col)}>Start</Btn>}
+        {canEdit && t.status === "in_progress" && <Btn sm kind="ghost" icon={<Pause size={12} />} onClick={() => onStatus(t.id, "on_hold", col)}>Pause</Btn>}
+        {canEdit && t.status === "on_hold" && <Btn sm kind="ghost" icon={<Play size={12} />} onClick={() => onStatus(t.id, "in_progress", col)}>Resume</Btn>}
+        {canEdit && t.status === "in_progress" && <Btn sm kind="ghost" icon={<CheckCircle2 size={12} />} onClick={() => onStatus(t.id, "completed", col)}>Complete</Btn>}
+        {canEdit && t.status === "completed" && <Btn sm kind="teal" icon={<Send size={12} />} onClick={() => onStatus(t.id, "published", col)}>Publish</Btn>}
+        {isAdmin && <button onClick={() => onDelete(t.id, col)} title="Remove" style={{ color: C.rose, background: "none", border: "none", cursor: "pointer" }}><Trash2 size={14} /></button>}
       </div>
     </div>
   );
@@ -326,7 +328,7 @@ function DailyTaskRow({ t, categories, canEdit, isAdmin, onStatus, onDelete, onO
    an urgent last-minute task stays near the top until it's dealt with. ---------------- */
 function PendingStaffCard({ staff, tasks, categories, canEdit, isAdmin, onStatus, onDelete, onOpen }: {
   staff: Agent; tasks: TaskRecord[]; categories: Category[]; canEdit: boolean; isAdmin: boolean;
-  onStatus: (id: string, status: Status) => void; onDelete: (id: string) => void; onOpen: (id: string) => void;
+  onStatus: (id: string, status: Status, col: ColKey) => void; onDelete: (id: string, col: ColKey) => void; onOpen: (id: string, col: ColKey) => void;
 }) {
   return (
     <div style={{ ...card, overflow: "hidden" }}>
@@ -344,7 +346,7 @@ function PendingStaffCard({ staff, tasks, categories, canEdit, isAdmin, onStatus
         {tasks.length === 0 && <div style={{ fontSize: 13, color: C.sub, padding: "6px 0" }}>Nothing pending — all caught up.</div>}
         <div className="space-y-2">
           {tasks.map((t) => (
-            <DailyTaskRow key={t.id} t={t} categories={categories} canEdit={canEdit} isAdmin={isAdmin} onStatus={onStatus} onDelete={onDelete} onOpen={onOpen} showDue />
+            <DailyTaskRow key={t.id} t={t} categories={categories} canEdit={canEdit} isAdmin={isAdmin} onStatus={onStatus} onDelete={onDelete} onOpen={onOpen} />
           ))}
         </div>
       </div>

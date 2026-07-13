@@ -37,14 +37,13 @@ interface TrackerViewProps {
   addRec: (col: ColKey, r: Partial<TaskRecord>) => void;
   updateRec: (col: ColKey, id: string, patch: Partial<TaskRecord>) => void;
   setRecStatus: (col: ColKey, id: string, status: Status) => void;
-  reassignRec: (col: ColKey, id: string, agentId: string) => void;
   deleteRec?: (col: ColKey, id: string) => void;
   openDetail: (id: string, col?: ColKey) => void;
 }
 
 const COLLECTION_LABEL: Record<ColKey, string> = { tasks: "Tasks", premium: "PREMIUM", gladex: "GLADEX", tariff: "Tariff", daily: "Daily Tasking" };
 
-export function TrackerView({ col, config, data, isAdmin, meId, addRec, updateRec, setRecStatus, reassignRec, openDetail }: TrackerViewProps) {
+export function TrackerView({ col, config, data, isAdmin, meId, addRec, updateRec, setRecStatus, openDetail }: TrackerViewProps) {
   const [search, setSearch] = useState("");
   const [fTeam, setFTeam] = useState("all");
   const [fStaff, setFStaff] = useState("all");
@@ -106,7 +105,7 @@ export function TrackerView({ col, config, data, isAdmin, meId, addRec, updateRe
       case "category": return r.category ? <span style={{ fontSize: 12, color: catC(r.category, data.categories), fontWeight: 600 }}>{r.category}</span> : <span style={{ color: C.sub }}>—</span>;
       case "department": return <span style={{ fontSize: 12.5, fontWeight: 600 }}>{r.department || "—"}</span>;
       case "destination": return r.destination ? <Chip color={C.international} soft="#E7EDFB" icon={<MapPin size={10} />}>{r.destination}</Chip> : <span style={{ color: C.sub }}>—</span>;
-      case "assignee": return ce ? <AssigneeSelect value={r.agentId} agents={data.agents} onChange={(nid) => reassignRec(r._col || col, r.id, nid)} /> : <span style={{ fontSize: 12.5, fontWeight: 600 }}>{agentName(r.agentId)}</span>;
+      case "assignee": return <span style={{ fontSize: 12.5, fontWeight: 600 }}>{agentName(r.agentId)}</span>;
       case "team": return <span style={{ fontSize: 12.5, color: teamColor(r.team), fontWeight: 600 }}>{r.team || "—"}</span>;
       case "priority": return ce ? <PrioritySelect value={r.priority || "medium"} onChange={(p) => updateRec(r._col || col, r.id, { priority: p })} /> : <Chip color={PRIORITY_META[r.priority || "medium"].c} soft={PRIORITY_META[r.priority || "medium"].soft}>{PRIORITY_META[r.priority || "medium"].txt}</Chip>;
       case "status": return ce ? <StatusSelect value={r.status} onChange={(s) => setRecStatus(r._col || col, r.id, s)} /> : <Chip color={STATUS_META[r.status].c} soft={STATUS_META[r.status].soft}>{STATUS_META[r.status].txt}</Chip>;

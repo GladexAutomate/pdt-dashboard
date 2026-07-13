@@ -74,6 +74,7 @@ create table if not exists records (
   comments        jsonb not null default '[]',
   activity        jsonb not null default '[]',
   collaborator_ids jsonb not null default '[]',
+  checklist       jsonb not null default '[]',
   assigned_by     text,
   completed_by    text,
   updated_at      timestamptz default now(),
@@ -81,6 +82,7 @@ create table if not exists records (
   created_at      timestamptz default now()
 );
 alter table records add column if not exists collaborator_ids jsonb not null default '[]';
+alter table records add column if not exists checklist jsonb not null default '[]';
 create index if not exists records_collection_idx on records(collection);
 create index if not exists records_agent_idx on records(agent_id);
 
@@ -346,6 +348,16 @@ as $$
   where id = p_record_id;
 $$;
 
+create or replace function public.append_checklist_item(p_record_id text, p_item jsonb, p_updated_by text)
+returns void
+language sql
+security definer
+set search_path = public, extensions
+as $$
+  update records set checklist = checklist || jsonb_build_array(p_item), updated_at = now(), updated_by = p_updated_by
+  where id = p_record_id;
+$$;
+
 revoke all on function public.login(text, text) from public;
 revoke all on function public.create_agent(text, text, text, text, text, text) from public;
 revoke all on function public.update_agent(text, text, text, text, text, text) from public;
@@ -357,6 +369,7 @@ revoke all on function public.append_comment(text, jsonb, text) from public;
 revoke all on function public.append_activity(text, jsonb, text) from public;
 revoke all on function public.append_proof(text, jsonb, text) from public;
 revoke all on function public.append_link(text, jsonb, text) from public;
+revoke all on function public.append_checklist_item(text, jsonb, text) from public;
 grant execute on function public.login(text, text) to anon, authenticated;
 grant execute on function public.create_agent(text, text, text, text, text, text) to anon, authenticated;
 grant execute on function public.update_agent(text, text, text, text, text, text) to anon, authenticated;
@@ -368,6 +381,7 @@ grant execute on function public.append_comment(text, jsonb, text) to anon, auth
 grant execute on function public.append_activity(text, jsonb, text) to anon, authenticated;
 grant execute on function public.append_proof(text, jsonb, text) to anon, authenticated;
 grant execute on function public.append_link(text, jsonb, text) to anon, authenticated;
+grant execute on function public.append_checklist_item(text, jsonb, text) to anon, authenticated;
 
 -- ---------- Row Level Security ----------
 -- NOTE (security tradeoff, please read):

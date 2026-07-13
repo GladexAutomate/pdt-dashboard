@@ -1,4 +1,4 @@
-import { ArrowRightLeft } from "lucide-react";
+import { ArrowRightLeft, Users } from "lucide-react";
 import { C, card, catC } from "../lib/theme";
 import { STATUS_META, PRIORITY_META, DEAD, DONEISH } from "../lib/constants";
 import { flattenRecords, relTime } from "../lib/helpers";
@@ -13,30 +13,26 @@ interface ReassignedTasksProps {
 }
 
 /* ---------------- Reassigned Tasks ----------------
-   Reassignment is already tracked — every handoff logs an activity entry
-   (see reassignRec in App.tsx). This is just a filtered view over that
-   existing history, across every collection, so continuity is easy to spot
-   without hunting through each tracker individually. An agent sees both
-   directions: tasks currently theirs (received), and ones they used to hold
-   and handed off (matched by name appearing in a past hop's text) — otherwise
-   the person who gave a task away has no way to find where it went. */
+   Reassignment now happens through collaborators, not through changing the
+   assignee. Adding someone as a collaborator (see TaskDetail) *is* the
+   handover — this view is a filtered look at every task that currently has
+   at least one collaborator, across every collection. An agent sees tasks
+   they've been added to help on, and their own tasks where they've looped
+   someone else in. Once a task is finished, there's nothing left to follow
+   up on, so it drops off this list. */
 export function ReassignedTasks({ data, isAdmin, meId, openDetail }: ReassignedTasksProps) {
-  const meName = data.agents.find((a) => a.id === meId)?.name;
-  const withHandoffs = flattenRecords(data)
-    .map((t) => ({ t, hops: (t.activity || []).filter((a) => a.type === "reassign") }))
-    // once a handed-off task is actually finished, there's nothing left to
-    // follow up on, so it drops off this list instead of lingering here.
-    .filter((x) => x.hops.length > 0 && !DONEISH(x.t.status));
-  const scoped = isAdmin ? withHandoffs : withHandoffs.filter((x) =>
-    x.t.agentId === meId || (meName && x.hops.some((h) => h.text.includes(meName)))
-  );
-  const sorted = [...scoped].sort((a, b) => b.hops[b.hops.length - 1].ts - a.hops[a.hops.length - 1].ts);
+  const withCollabs = flattenRecords(data)
+    .filter((t) => (t.collaboratorIds || []).length > 0 && !DONEISH(t.status));
+  const scoped = isAdmin
+    ? withCollabs
+    : withCollabs.filter((t) => t.agentId === meId || (t.collaboratorIds || []).includes(meId || ""));
+  const sorted = [...scoped].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
   return (
     <div>
       <div className="flex items-center gap-2 mb-1"><ArrowRightLeft size={20} color={C.ink} /><h2 style={{ fontSize: 19, fontWeight: 700 }}>Reassigned Tasks</h2></div>
       <div style={{ fontSize: 12.5, color: C.sub, marginBottom: 14 }}>
-        {isAdmin ? "Tasks handed from one person to another, across every tracker." : "Tasks handed to you to continue, and tasks you've handed off to someone else."}
+        {isAdmin ? "Tasks with collaborators added, across every tracker." : "Tasks you've been added to as a collaborator, and your own tasks where you've looped someone else in."}
       </div>
       <div className="space-y-2.5">
         {sorted.length === 0 && (
@@ -44,12 +40,13 @@ export function ReassignedTasks({ data, isAdmin, meId, openDetail }: ReassignedT
             No reassigned tasks{isAdmin ? "" : " involving you"} right now.
           </div>
         )}
-        {sorted.map(({ t, hops }) => {
+        {sorted.map((t) => {
           const m = STATUS_META[t.status];
           const pm = PRIORITY_META[t.priority || "medium"];
-          const agentName = data.agents.find((a) => a.id === t.agentId)?.name || "Unassigned";
-          const latest = hops[hops.length - 1];
-          const isMine = t.agentId === meId;
+          const ownerName = data.agents.find((a) => a.id === t.agentId)?.name || "Unassigned";
+          const collabNames = (t.collaboratorIds || []).map((id) => data.agents.find((a) => a.id === id)?.name || "Unknown");
+          const isCollabForMe = !isAdmin && (t.collaboratorIds || []).includes(meId || "");
+          const isMineWithHelp = !isAdmin && t.agentId === meId;
           return (
             <div key={t.id} style={{ ...card, padding: 13, opacity: DEAD(t.status) ? 0.65 : 1 }}>
               <div className="flex items-center gap-2 flex-wrap">
@@ -58,15 +55,13 @@ export function ReassignedTasks({ data, isAdmin, meId, openDetail }: ReassignedT
                 <Chip color={pm.c} soft={pm.soft}>{pm.txt}</Chip>
                 <Chip color={m.c} soft={m.soft}>{m.txt}</Chip>
                 <span style={{ fontSize: 11, color: C.sub, textTransform: "capitalize" }}>{t._col}</span>
-                {!isAdmin && (isMine
-                  ? <Chip color={C.teal} soft={C.tealSoft}>With you now</Chip>
-                  : <Chip color={C.sub} soft={C.paper}>You handed this off</Chip>)}
+                {isCollabForMe && <Chip color={C.teal} soft={C.tealSoft}>You're helping on this</Chip>}
+                {isMineWithHelp && <Chip color={C.sub} soft={C.paper}>You added help</Chip>}
               </div>
               <div className="flex items-center gap-1.5 mt-1.5" style={{ fontSize: 12.5, color: C.sub }}>
-                <ArrowRightLeft size={12} /> {latest.text} · {relTime(latest.ts)}
-                {hops.length > 1 && <span> · +{hops.length - 1} earlier handoff{hops.length - 1 !== 1 ? "s" : ""}</span>}
+                <Users size={12} /> Owner: <b style={{ color: C.text }}>{ownerName}</b> · Collaborators: <b style={{ color: C.text }}>{collabNames.join(", ")}</b>
               </div>
-              <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>Now with <b style={{ color: C.text }}>{agentName}</b></div>
+              <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>Updated {relTime(t.updatedAt || 0)}</div>
             </div>
           );
         })}

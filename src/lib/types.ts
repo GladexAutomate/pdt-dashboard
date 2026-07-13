@@ -99,6 +99,7 @@ export interface TaskRecord {
   description?: string;
   links?: LinkItem[];
   proof?: ProofItem[];
+  checklist?: ChecklistItem[];
   proofCount?: number;
   comments?: CommentEntry[];
   activity?: ActivityEntry[];
@@ -268,4 +269,16 @@ export interface StaffMonthStats {
   kpi: number;
   avgTime: number | null;
   lastActivity: number | null;
+}
+
+export interface ChecklistItem {
+  id: string;
+  text: string;
+  done: boolean;
+  ts: number;
+  by: string;
+  assigneeId?: string | null;
+  category?: string;
+  linkedTaskId?: string | null;
+  linkedCol?: ColKey;
 }

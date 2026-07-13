@@ -84,7 +84,9 @@ export function KpiDashboard({ data, isAdmin, addDef, updateDef, removeDef }: Kp
   // the live roster (e.g. it says "Angelee" while the real agent is named
   // "Ange") — completedBy is always stamped with the real name, so Current
   // must be matched against the real name too, not the hardcoded one.
-  const staffRows: StaffRow[] = useMemo(() => KPI_STAFF.map((s) => {
+  const staffRows: StaffRow[] = useMemo(() => KPI_STAFF
+  .filter((s) => !data.agents.find((a) => a.id === s.agentId)?.isAdmin)
+  .map((s) => {
     const realName = data.agents.find((a) => a.id === s.agentId)?.name || s.name;
     const kpis: KpiRow[] = defs.filter((d) => d.staffId === s.id).map((d) => {
       const current = kpiCurrentCount(allRecords, realName, d.task, y, mo - 1);

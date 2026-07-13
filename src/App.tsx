@@ -6,10 +6,10 @@ import {
 import { C } from "./lib/theme";
 import { TRACKERS, DONEISH, H, STATUS_META } from "./lib/constants";
 import { flattenRecords } from "./lib/helpers";
-import { fetchAppData, insertRecord, updateRecordRow, deleteRecordRow, insertLog, upsertReport, insertKpiDefRow, updateKpiDefRow, deleteKpiDefRow, subscribeToChanges, createAgent, updateAgentRow, deleteAgentRow, updateAdminRow, insertCategoryRow, updateCategoryRow, deleteCategoryRow, setAgentAdmin, setAgentActive, appendComment, appendActivity, appendProof, appendLink, fetchRecordProof } from "./lib/api";
+import { fetchAppData, insertRecord, updateRecordRow, deleteRecordRow, insertLog, upsertReport, insertKpiDefRow, updateKpiDefRow, deleteKpiDefRow, subscribeToChanges, createAgent, updateAgentRow, deleteAgentRow, updateAdminRow, insertCategoryRow, updateCategoryRow, deleteCategoryRow, setAgentAdmin, setAgentActive, appendComment, appendActivity, appendProof, appendLink, fetchRecordProof, appendChecklistItem } from "./lib/api";
 import type {
   AppData, TaskRecord, Status, Team, ColKey, LogEntry, ReportState, Session,
-  LoginResult, DetailTarget, Agent, ActivityEntry, CommentEntry, KpiDef, Category, Priority, ProofItem, LinkItem
+  LoginResult, DetailTarget, Agent, ActivityEntry, CommentEntry, KpiDef, Category, ProofItem, LinkItem, ChecklistItem
 } from "./lib/types";
 import { Login } from "./components/Login";
 import { Shell } from "./components/Shell";
@@ -174,21 +174,6 @@ export default function App() {
       () => log({ userId: actor().id, name: actor().name, role: actor().role, type: "status", detail: `Set "${t.title}" → ${STATUS_META[status].txt}` })
     );
   };
-  const reassignRec = (col: ColKey, id: string, newAgentId: string) => {
-    const t = (data?.[col] || []).find((x) => x.id === id);
-    if (!t || t.agentId === newAgentId) return;
-    const from = data?.agents.find((a) => a.id === t.agentId)?.name || "Unassigned";
-    const toA = data?.agents.find((a) => a.id === newAgentId);
-    const entry: ActivityEntry = { id: actId(), type: "reassign", text: `Reassigned ${from} → ${toA?.name || "—"}`, by: actor().name, role: actor().role, ts: Date.now() };
-    const patch: Partial<TaskRecord> = { agentId: newAgentId, team: toA?.team || t.team };
-    const fullPatch: Partial<TaskRecord> = { ...patch, activity: [...(t.activity || []), entry], updatedAt: Date.now(), updatedBy: actor().name };
-    persistCol(col, (l) => l.map((x) => (x.id === id ? { ...x, ...fullPatch } : x)));
-    runMutation(
-      () => updateRecordRow(id, patch).then(() => appendActivity(id, entry, actor().name)),
-      () => persistCol(col, (l) => l.map((x) => (x.id === id ? t : x))),
-      () => log({ userId: actor().id, name: actor().name, role: actor().role, type: "reassign", detail: `Reassigned "${t.title}" → ${toA?.name || "—"}` })
-    );
-  };
   const addRecComment = (col: ColKey, id: string, text: string) => {
     if (!text || !text.trim()) return;
     const t = (data?.[col] || []).find((x) => x.id === id);
@@ -233,17 +218,31 @@ export default function App() {
       () => persistCol(col, (l) => l.map((x) => (x.id === id ? t : x)))
     );
   };
-  const createFollowUpTask = (col: ColKey, originalId: string, input: { title: string; category: string; priority: Priority; agentId: string; dueDate: number | null }) => {
-    const original = (data?.[col] || []).find((t) => t.id === originalId);
-    if (!original) return;
-    const assignee = data?.agents.find((a) => a.id === input.agentId);
-    const newId = addRec(col, {
-      title: input.title, category: input.category, priority: input.priority, agentId: input.agentId,
-      team: assignee?.team, dueDate: input.dueDate, status: "pending",
-      description: `Follow-up to "${original.title}"${original.completedBy ? ` (originally completed by ${original.completedBy})` : ""}.`
+  const addRecChecklistItem = (col: ColKey, id: string, item: ChecklistItem) => {
+    const t = (data?.[col] || []).find((x) => x.id === id);
+    if (!t) return;
+    const patch: Partial<TaskRecord> = { checklist: [...(t.checklist || []), item], updatedAt: Date.now(), updatedBy: actor().name };
+    persistCol(col, (l) => l.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+    runMutation(
+      () => appendChecklistItem(id, item, actor().name),
+      () => persistCol(col, (l) => l.map((x) => (x.id === id ? t : x)))
+    );
+  };
+  const addChecklistTask = (col: ColKey, parentId: string, input: { text: string; assigneeId: string; category: string; targetCol: ColKey }) => {
+    const parent = (data?.[col] || []).find((t) => t.id === parentId);
+    if (!parent) return;
+    const assignee = data?.agents.find((a) => a.id === input.assigneeId);
+    const newId = addRec(input.targetCol, {
+      title: input.text, category: input.category, agentId: input.assigneeId, team: assignee?.team,
+      status: "pending", dueDate: input.targetCol === "daily" ? Date.now() : undefined,
+      description: `Checklist item from "${parent.title}".`
     });
-    pushRecActivity(col, originalId, "link", `Created follow-up task "${input.title}" for ${assignee?.name || "—"}`);
-    setDetail({ col, id: newId });
+    const item: ChecklistItem = {
+      id: "ck" + Date.now(), text: input.text, done: false, ts: Date.now(), by: actor().name,
+      assigneeId: input.assigneeId, category: input.category, linkedTaskId: newId, linkedCol: input.targetCol
+    };
+    addRecChecklistItem(col, parentId, item);
+    pushRecActivity(col, parentId, "checklist", `Added checklist item "${input.text}" assigned to ${assignee?.name || "—"} (${input.targetCol})`);
   };
   const deleteRec = (col: ColKey, id: string) => {
     const prev = (data?.[col] || []).find((r) => r.id === id);
@@ -431,7 +430,6 @@ export default function App() {
      collection. */
   const updateTask = (id: string, patch: Partial<TaskRecord>) => updateRec("tasks", id, patch);
   const setStatus = (id: string, status: Status) => setRecStatus("tasks", id, status);
-  const reassignTask = (id: string, n: string) => reassignRec("tasks", id, n);
   const completeRec = (col: ColKey, id: string, { hours, itemsTotal, itemsError, publish }: CompletePayload) => {
     const t = data?.[col]?.find((x) => x.id === id);
     const now = Date.now();
@@ -469,11 +467,14 @@ export default function App() {
   };
   const trackerProps = (col: ColKey) => ({
     data, isAdmin: session?.role === "admin", meId: session?.agentId,
-    addRec, updateRec, setRecStatus, reassignRec, deleteRec,
+    addRec, updateRec, setRecStatus, deleteRec,
     openDetail: (id: string, recCol?: ColKey) => setDetail({ col: recCol || col, id })
   });
   const detailRec = detail ? (data[detail.col] || []).find((r) => r.id === detail.id) : null;
-  const reassignedForMe = flattenRecords(data).filter((t) => !DONEISH(t.status) && (t.activity || []).some((a) => a.type === "reassign") && (session?.role === "admin" || t.agentId === session?.agentId)).length;
+  const reassignedForMe = flattenRecords(data).filter((t) =>
+    !DONEISH(t.status) && (t.collaboratorIds || []).length > 0 &&
+    (session?.role === "admin" || t.agentId === session?.agentId || (t.collaboratorIds || []).includes(session?.agentId || ""))
+  ).length;
   const reportProps = {
     data, isAdmin: session?.role === "admin", meId: session?.agentId, actorName: session?.name,
     openAny: (col: ColKey, id: string) => setDetail({ col, id }), submitReport, approveReport, reopenReport
@@ -496,7 +497,7 @@ export default function App() {
           tabs={[["home", "Dashboard", <LayoutDashboard size={16} />], ["teams", "Teams", <Users size={16} />], ["daily", "Daily Tasking", <CalendarCheck size={16} />], ["reassigned", "Reassigned Tasks", <ArrowRightLeft size={16} />, reassignedForMe], ["users", "Users", <UserCog size={16} />], ["categories", "Categories", <Tag size={16} />], ["kpi", "KPI Targets", <Target size={16} />], ["premium", "PREMIUM", <Sparkles size={16} />], ["gladex", "GLADEX", <Package size={16} />], ["tariff", "Tariff", <FileText size={16} />], ["report", "Monthly Report", <Gauge size={16} />], ["logs", "Logs", <ScrollText size={16} />]]}
           active={adminTab} setActive={(t) => { setAdminTab(t); setSelTeam(null); setSelAgent(null); }}>
           {adminTab === "home" && <AdminHome data={data} go={(team) => { setAdminTab("teams"); setSelTeam(team as Team); }} />}
-            {adminTab === "daily" && <DailyTasking {...trackerProps("daily")} isAdmin />}
+          {adminTab === "daily" && <DailyTasking {...trackerProps("daily")} isAdmin />}
           {adminTab === "reassigned" && <ReassignedTasks data={data} isAdmin meId={session?.agentId} openDetail={(col, id) => setDetail({ col, id })} />}
           {adminTab === "users" && <UserManagement data={data} addAgent={addAgent} updateAgent={updateAgent} removeAgent={removeAgent} setAgentAdmin={setAgentAdminFlag} setAgentActive={setAgentActiveFlag} />}
           {adminTab === "categories" && <CategoryManagement categories={data.categories} addCategory={addCategory} updateCategory={updateCategory} removeCategory={removeCategory} />}
@@ -510,7 +511,7 @@ export default function App() {
             selAgent ? <MemberDetail agent={data.agents.find((a) => a.id === selAgent)!} data={data}
               onBack={() => setSelAgent(null)} addRec={addRec} completeRec={completeRec} deleteRec={deleteRec} setRecStatus={setRecStatus}
               openDetail={(col, id) => setDetail({ col, id })} isAdmin />
-              : <Teams data={data} selTeam={selTeam} setSelTeam={setSelTeam} openMember={setSelAgent} setStatus={setStatus} updateTask={updateTask} reassignTask={reassignTask} openDetail={openTaskDetail} />
+              : <Teams data={data} selTeam={selTeam} setSelTeam={setSelTeam} openMember={setSelAgent} setStatus={setStatus} updateTask={updateTask} openDetail={openTaskDetail} />
           )}
         </Shell>
       ) : (
@@ -538,13 +539,13 @@ export default function App() {
           onClose={() => setDetail(null)}
           updateTask={(id, patch) => updateRec(detail.col, id, patch)}
           setStatus={(id, s) => setRecStatus(detail.col, id, s)}
-          reassignTask={(id, n) => reassignRec(detail.col, id, n)}
           addComment={(id, text) => addRecComment(detail.col, id, text)}
           pushActivity={(id, ty, tx) => pushRecActivity(detail.col, id, ty, tx)}
           appendProof={(id, item) => addRecProof(detail.col, id, item)}
           appendLink={(id, link) => addRecLink(detail.col, id, link)}
+          appendChecklistItem={(id, item) => addRecChecklistItem(detail.col, id, item)}
+          createChecklistTask={(input) => addChecklistTask(detail.col, detailRec.id, input)}          
           deleteTask={(id) => { deleteRec(detail.col, id); setDetail(null); }}
-          createFollowUp={(input) => createFollowUpTask(detail.col, detailRec.id, input)}
           onGoToTracker={goToTracker} />
       )}
       {showAccount && session?.role === "admin" && (

@@ -53,9 +53,12 @@ export function myWorkPool(data: AppData): TaskRecord[] {
 // tracker (PREMIUM/GLADEX/Tariff) by name — purely a text match, since a
 // category is just a free-text tag and isn't otherwise tied to a collection.
 export function trackerColForCategory(category: string | undefined): "premium" | "gladex" | "tariff" | null {
-  const norm = (category || "").toLowerCase().replace(/[^a-z]/g, "");
+  const norm = (category || "").toLowerCase();
   if (!norm) return null;
-  return (["premium", "gladex", "tariff"] as const).find((col) => norm === col || norm === col + "s") || null;
+  if (norm.includes("tariff")) return "tariff";
+  if (norm.includes("premium")) return "premium";
+  if (norm.includes("gladex")) return "gladex";
+  return null;
 }
 export function reassignCount(r: TaskRecord, y: number, m: number): number {
   return (r.activity || []).filter((a) => a.type === "reassign" && inMonth(a.ts, y, m)).length;
