@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import {
   ScrollText, Lock, CheckCircle2, Send, Plus, Activity, ArrowRightLeft, MessageSquare, Paperclip, Link2,
-  Filter, ChevronLeft, ChevronRight
+  Filter, ChevronLeft, ChevronRight, Pencil, Trash2
 } from "lucide-react";
 import { C, card, teamColor, inputStyle } from "../lib/theme";
 import { fmtDate, relTime } from "../lib/helpers";
@@ -10,13 +10,14 @@ import type { LogEntry } from "../lib/types";
 
 const TYPE_LABEL: Record<string, string> = {
   login: "Login", complete: "Completed", publish: "Published", create: "Created",
-  status: "Status change", reassign: "Reassigned", comment: "Comment", proof: "Proof", link: "Link"
+  status: "Status change", reassign: "Reassigned", comment: "Comment", proof: "Proof", link: "Link",
+  edit: "Edited", delete: "Deleted"
 };
 const PAGE_SIZE = 15;
 
 /* ---------------- Access logs ---------------- */
 export function Logs({ logs, title = "Access logs" }: { logs: LogEntry[]; title?: string }) {
-  const icon: Record<string, ReactNode> = { login: <Lock size={14} color={C.sub} />, complete: <CheckCircle2 size={14} color={C.amber} />, publish: <Send size={14} color={C.teal} />, create: <Plus size={14} color={C.ink2} />, status: <Activity size={14} color={C.ink2} />, reassign: <ArrowRightLeft size={14} color={C.international} />, comment: <MessageSquare size={14} color={C.ink2} />, proof: <Paperclip size={14} color={C.sub} />, link: <Link2 size={14} color={C.sub} /> };
+  const icon: Record<string, ReactNode> = { login: <Lock size={14} color={C.sub} />, complete: <CheckCircle2 size={14} color={C.amber} />, publish: <Send size={14} color={C.teal} />, create: <Plus size={14} color={C.ink2} />, status: <Activity size={14} color={C.ink2} />, reassign: <ArrowRightLeft size={14} color={C.international} />, comment: <MessageSquare size={14} color={C.ink2} />, proof: <Paperclip size={14} color={C.sub} />, link: <Link2 size={14} color={C.sub} />, edit: <Pencil size={14} color={C.ink2} />, delete: <Trash2 size={14} color={C.rose} /> };
 
   const [fType, setFType] = useState("all");
   const [fUser, setFUser] = useState("all");

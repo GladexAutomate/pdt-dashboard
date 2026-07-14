@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import {
   X, Sparkles, MapPin, Link2, Paperclip, MessageSquare, FileText, Target,
   ExternalLink, Plus, Send, Trash2, CalendarCheck, Image as ImageIcon,
-  ArrowRightLeft, Activity, History, Users, ListChecks
+  ArrowRightLeft, Activity, History, ListChecks
 } from "lucide-react";
 import { C, inputStyle, dateInputStyle, lbl, selStyleBtn, catC } from "../lib/theme";
 import { STATUS_META, PRIORITY_META, DONEISH, TRACKERS } from "../lib/constants";
@@ -46,7 +46,6 @@ export function TaskDetail({ task, data, actor, canEdit, onClose, updateTask, se
   const [checklistAssignee, setChecklistAssignee] = useState("");
   const [checklistCategory, setChecklistCategory] = useState(t.category || data.categories[0]?.name || "");
   const allRecords = useMemo(() => flattenRecords(data), [data]);
-  const [addCollabId, setAddCollabId] = useState("");
 
   // proof isn't part of the bulk dashboard load (see api.ts) — App.tsx
   // fetches it just for this task once the drawer opens, so re-sync once
@@ -101,7 +100,13 @@ export function TaskDetail({ task, data, actor, canEdit, onClose, updateTask, se
     if (!checklistText.trim()) return;
     if (checklistAssignee) {
       const category = checklistCategory || t.category || data.categories[0]?.name || "";
-      const targetCol = trackerColForCategory(category) || "daily";
+      // always land in "daily" rather than routing into a tracker collection
+      // (premium/gladex/tariff) by category match — a delegated checklist
+      // ticket should show up in the assignee's work via Daily Tasking/
+      // Reassigned Tasks, and only appear inside a tracker tab as a
+      // cross-collection "via Daily Tasking" related row if its category
+      // genuinely matches, not become a permanent native row there.
+      const targetCol: ColKey = "daily";
       createChecklistTask({ text: checklistText.trim(), assigneeId: checklistAssignee, category, targetCol });
       setChecklistAssignee("");
     } else {
@@ -126,20 +131,6 @@ export function TaskDetail({ task, data, actor, canEdit, onClose, updateTask, se
     if (c.linkedTaskId) { const lt = allRecords.find((r) => r.id === c.linkedTaskId); return lt ? DONEISH(lt.status) : false; }
     return c.done;
   }).length;
-
-  const availableCollabs = data.agents.filter((a) => a.isActive && a.id !== t.agentId && !(t.collaboratorIds || []).includes(a.id));
-  const addCollaborator = () => {
-    if (!addCollabId) return;
-    const name = data.agents.find((a) => a.id === addCollabId)?.name || "someone";
-    updateTask(t.id, { collaboratorIds: [...(t.collaboratorIds || []), addCollabId] });
-    pushActivity(t.id, "edit", `Added ${name} as a collaborator`);
-    setAddCollabId("");
-  };
-  const removeCollaborator = (id: string) => {
-    const name = data.agents.find((a) => a.id === id)?.name || "someone";
-    updateTask(t.id, { collaboratorIds: (t.collaboratorIds || []).filter((cid) => cid !== id) });
-    pushActivity(t.id, "edit", `Removed ${name} as a collaborator`);
-  };
 
   const timeline: TimelineItem[] = [
     ...(t.comments || []).map((c) => ({ ...c, kind: "comment" as const })),
@@ -214,34 +205,6 @@ export function TaskDetail({ task, data, actor, canEdit, onClose, updateTask, se
             <div><div style={lbl}>Due date</div><input disabled={ro} type="date" value={toDateInput(t.dueDate)} onChange={(e) => updateTask(t.id, { dueDate: fromDateInput(e.target.value) })} style={dateInputStyle} />{dm && dm.label && <span style={{ fontSize: 11, color: dm.c, fontWeight: 600, marginLeft: 6 }}>{dm.label}</span>}</div>
             <div><div style={lbl}>Completed</div><div className="flex items-center gap-1" style={{ fontSize: 13, color: DONEISH(t.status) ? C.teal : C.sub, fontWeight: 600, paddingTop: 5 }}><CalendarCheck size={14} /> {DONEISH(t.status) && t.completedAt ? fmtDay(t.completedAt) : "—"}</div></div>
           </div>
-
-          {/* collaborators */}
-          <DetailSection icon={<Users size={15} color={C.ink} />} title={`Collaborators${(t.collaboratorIds || []).length ? ` (${(t.collaboratorIds || []).length})` : ""}`}>
-            <div style={{ fontSize: 12, color: C.sub, marginBottom: 8 }}>
-              Add a plain note, or pick someone to assign it to — assigning turns it into a real ticket in their Pending. Pick a category (e.g. a Tariff category) and it'll automatically land on the matching board.
-            </div>
-            <div className="flex gap-2 flex-wrap mb-2">
-              {(t.collaboratorIds || []).length === 0 && <div style={{ fontSize: 12.5, color: C.sub }}>No collaborators yet.</div>}
-              {(t.collaboratorIds || []).map((id) => {
-                const a = data.agents.find((x) => x.id === id);
-                return (
-                  <div key={id} className="flex items-center gap-1.5" style={{ background: C.paper, borderRadius: 999, padding: "5px 6px 5px 11px", fontSize: 12.5, fontWeight: 600 }}>
-                    {a?.name || "Unknown"}
-                    {canEdit && <button onClick={() => removeCollaborator(id)} style={{ background: "transparent", border: "none", cursor: "pointer", color: C.sub, display: "flex", padding: 2 }}><X size={12} /></button>}
-                  </div>
-                );
-              })}
-            </div>
-            {canEdit && availableCollabs.length > 0 && (
-              <div className="flex gap-2 flex-wrap">
-                <select value={addCollabId} onChange={(e) => setAddCollabId(e.target.value)} style={{ ...inputStyle, flex: "1 1 180px" }}>
-                  <option value="">Add collaborator…</option>
-                  {availableCollabs.map((a) => <option key={a.id} value={a.id}>{a.name} · {a.team}</option>)}
-                </select>
-                <Btn sm kind="ghost" icon={<Plus size={13} />} disabled={!addCollabId} onClick={addCollaborator}>Add</Btn>
-              </div>
-            )}
-          </DetailSection>
 
           {/* description */}
           <DetailSection icon={<FileText size={15} color={C.ink} />} title="Description & work done">

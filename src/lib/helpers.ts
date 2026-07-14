@@ -49,6 +49,28 @@ export function flattenRecords(data: AppData): TaskRecord[] {
 export function myWorkPool(data: AppData): TaskRecord[] {
   return flattenRecords(data).filter((r) => r._col === "tasks" || r._col === "daily");
 }
+
+export interface Delegation {
+  parent: TaskRecord;
+  child: TaskRecord;
+}
+// every task that currently exists because someone assigned a checklist item
+// to another person (see addChecklistTask in App.tsx) — the assignment
+// itself spawns a brand-new real ticket (the "child"), linked back to the
+// checklist item's own task (the "parent"). Shared by the Reassigned Tasks
+// page and its nav badge count so both agree on what's "active."
+export function activeDelegations(data: AppData): Delegation[] {
+  const all = flattenRecords(data);
+  const out: Delegation[] = [];
+  all.forEach((parent) => {
+    (parent.checklist || []).forEach((item) => {
+      if (!item.linkedTaskId) return;
+      const child = all.find((r) => r.id === item.linkedTaskId);
+      if (child && !DONEISH(child.status)) out.push({ parent, child });
+    });
+  });
+  return out;
+}
 // lets a task's category (e.g. "Tariff's") relate it to the matching
 // tracker (PREMIUM/GLADEX/Tariff) by name — purely a text match, since a
 // category is just a free-text tag and isn't otherwise tied to a collection.

@@ -1,5 +1,5 @@
 import type { ReactNode, CSSProperties } from "react";
-import { Palmtree, LogOut, UserCog } from "lucide-react";
+import { Palmtree, LogOut, UserCog, RefreshCw } from "lucide-react";
 import { C } from "../lib/theme";
 import { Btn } from "./ui";
 import type { Session } from "../lib/types";
@@ -37,6 +37,7 @@ export function Shell({ session, onLogout, onAccount, tabs, active, setActive, c
             <div style={{ fontSize: 13, fontWeight: 600 }}>{session.name}</div>
             <div style={{ fontSize: 11, color: C.sub, textTransform: "capitalize" }}>{session.role}</div>
           </div>
+          <Btn onClick={() => window.location.reload()} kind="ghost" sm icon={<RefreshCw size={14} />}>Refresh</Btn>
           {onAccount && <Btn onClick={onAccount} kind="ghost" sm icon={<UserCog size={14} />}>Account</Btn>}
           <Btn onClick={onLogout} kind="blue" sm icon={<LogOut size={14} />}>Logout</Btn>
         </div>

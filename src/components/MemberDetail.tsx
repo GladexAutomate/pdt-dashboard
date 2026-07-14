@@ -46,14 +46,11 @@ export function MemberDetail({ agent, data, onBack, addRec, completeRec, deleteR
   const s = useMemo(() => agentStats(agent, pool), [pool, agent]);
   const sp = speedLabel(s.avgSpeed);
   // matches agentStats' credit rule: once a task is done, it belongs only to
-  // whoever actually finished it (completedBy) — collaborators only widen
-  // who sees a task while it's still active, so being added as a
-  // collaborator after the fact (or on someone else's already-finished
-  // ticket) doesn't retroactively show their completed work as yours.
+  // whoever actually finished it (completedBy).
   const tasks = pool.filter((t) =>
     DONEISH(t.status) && t.completedBy
       ? t.completedBy === agent.name
-      : t.agentId === agent.id || (t.collaboratorIds || []).includes(agent.id)
+      : t.agentId === agent.id
   );
   const special = tasks.filter((t) => t.special && !DEAD(t.status));
   // most recently added/touched first, so whatever you just worked on (or

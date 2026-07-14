@@ -39,16 +39,12 @@ export function DailyTasking({ data, isAdmin, meId, addRec, setRecStatus, delete
   const scope = isAdmin ? data.agents : data.agents.filter((a) => a.id === meId);
   const shown = isAdmin && staffF !== "all" ? scope.filter((a) => a.id === staffF) : scope;
   // matches the same credit rule as agentStats/staffMonth: once a task is
-  // done, it belongs only to whoever actually finished it (completedBy) —
-  // collaborators only widen who sees/counts a task while it's still active,
-  // so someone added as a collaborator after the fact (or who never touched
-  // it before it got finished) doesn't inherit someone else's completed work
-  // or hours on their own EOD.
+  // done, it belongs only to whoever actually finished it (completedBy).
   const dailyFor = (agent: Agent) => flattenRecords(data).filter((d) =>
     toDateInput(d.dueDate) === date && (
       DONEISH(d.status) && d.completedBy
         ? d.completedBy === agent.name
-        : d.agentId === agent.id || (d.collaboratorIds || []).includes(agent.id)
+        : d.agentId === agent.id
     )
   );
   // "Pending" is a rollup, not scoped to one day — anything not finished
@@ -58,7 +54,7 @@ export function DailyTasking({ data, isAdmin, meId, addRec, setRecStatus, delete
   // away and keeps floating near the top until it's dealt with.
   const prRank = (p?: Priority) => PRIORITIES.indexOf(p || "medium");
   const pendingFor = (agent: Agent) => flattenRecords(data)
-    .filter((d) => !DONEISH(d.status) && !DEAD(d.status) && (d.agentId === agent.id || (d.collaboratorIds || []).includes(agent.id)))
+    .filter((d) => !DONEISH(d.status) && !DEAD(d.status) && d.agentId === agent.id)
     .sort((a, b) => prRank(a.priority) - prRank(b.priority) || (a.dueDate ?? Infinity) - (b.dueDate ?? Infinity));
   const totalPending = shown.reduce((sum, a) => sum + pendingFor(a).length, 0);
 
@@ -372,7 +368,7 @@ function TeamDailyReport({ data, date }: { data: AppData; date: string }) {
         toDateInput(d.dueDate) === date && (
           DONEISH(d.status) && d.completedBy
             ? d.completedBy === a.name
-            : d.agentId === a.id || (d.collaboratorIds || []).includes(a.id)
+            : d.agentId === a.id
         )
       );
       return { name: a.name, titles: ts.filter((d) => DONEISH(d.status)).map((d) => d.title) };

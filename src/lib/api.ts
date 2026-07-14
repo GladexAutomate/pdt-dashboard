@@ -41,7 +41,6 @@ interface RecordRow {
   proof_count: number | null;
   comments: CommentEntry[] | null;
   activity: ActivityEntry[] | null;
-  collaborator_ids: string[] | null;
   assigned_by: string | null;
   completed_by: string | null;
   updated_at: string | null;
@@ -78,7 +77,6 @@ function rowToRecord(row: RecordRow): TaskRecord {
     proofCount: row.proof_count ?? 0,
     comments: row.comments ?? [],
     activity: row.activity ?? [],
-    collaboratorIds: row.collaborator_ids ?? [],
     assignedBy: row.assigned_by ?? undefined,
     completedBy: row.completed_by,
     updatedAt: toMs(row.updated_at) ?? undefined,
@@ -129,7 +127,7 @@ function recordPatchToRow(patch: Partial<TaskRecord>): Record<string, unknown> {
 // dashboard load doesn't scale. `proof_count` (already a separate column)
 // covers every place that just needs the count; the full array is fetched
 // on demand for one record at a time, see fetchRecordProof below.
-const RECORD_COLUMNS_NO_PROOF = "id,collection,agent_id,title,category,department,destination,team,status,priority,progress,start_date,due_date,started_at,completed_at,estimated_hours,items_total,items_error,special,target,requirements,remarks,description,links,proof_count,comments,activity,collaborator_ids,assigned_by,completed_by,updated_at,updated_by,checklist";
+const RECORD_COLUMNS_NO_PROOF = "id,collection,agent_id,title,category,department,destination,team,status,priority,progress,start_date,due_date,started_at,completed_at,estimated_hours,items_total,items_error,special,target,requirements,remarks,description,links,proof_count,comments,activity,assigned_by,completed_by,updated_at,updated_by,checklist";
 
 /* ---------- full app data load ---------- */
 export async function fetchAppData(): Promise<AppData> {

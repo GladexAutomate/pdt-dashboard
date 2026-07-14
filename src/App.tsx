@@ -5,7 +5,7 @@ import {
 
 import { C } from "./lib/theme";
 import { TRACKERS, DONEISH, H, STATUS_META } from "./lib/constants";
-import { flattenRecords } from "./lib/helpers";
+import { activeDelegations } from "./lib/helpers";
 import { fetchAppData, insertRecord, updateRecordRow, deleteRecordRow, insertLog, upsertReport, insertKpiDefRow, updateKpiDefRow, deleteKpiDefRow, subscribeToChanges, createAgent, updateAgentRow, deleteAgentRow, updateAdminRow, insertCategoryRow, updateCategoryRow, deleteCategoryRow, setAgentAdmin, setAgentActive, appendComment, appendActivity, appendProof, appendLink, fetchRecordProof, appendChecklistItem } from "./lib/api";
 import type {
   AppData, TaskRecord, Status, Team, ColKey, LogEntry, ReportState, Session,
@@ -29,6 +29,7 @@ import { CategoryManagement } from "./components/CategoryManagement";
 import { ReassignedTasks } from "./components/ReassignedTasks";
 
 type LogInput = Omit<LogEntry, "id" | "ts">;
+const SESSION_KEY = "pdt_session";
 
 /* ================================================================= */
 export default function App() {
@@ -43,6 +44,23 @@ export default function App() {
   const [detail, setDetail] = useState<DetailTarget | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [showAccount, setShowAccount] = useState(false);
+
+  // restore a signed-in session across page reloads (e.g. after a deploy
+  // forces a refresh) so users don't have to log back in every time.
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(SESSION_KEY);
+      if (raw) setSession(JSON.parse(raw));
+    } catch { /* corrupt/unavailable storage — just fall back to the login screen */ }
+  }, []);
+
+  // once the roster is loaded, drop a restored session if the account was
+  // deactivated in the meantime instead of trusting the stale cached copy.
+  useEffect(() => {
+    if (!data || !session?.agentId) return;
+    const agent = data.agents.find((a) => a.id === session.agentId);
+    if (!agent || !agent.isActive) doLogout();
+  }, [data, session]);
 
   useEffect(() => {
     if (!toast) return;
@@ -128,7 +146,7 @@ export default function App() {
     const full: TaskRecord = {
       id, agentId: null, title: "", status: "pending", startedAt: null, completedAt: null, itemsTotal: 0, itemsError: 0, startDate: null, dueDate: null,
       requirements: "", remarks: "", description: "", links: [], proof: [], proofCount: 0, priority: "medium", progress: 0,
-      comments: [], activity: [], collaboratorIds: [], category: "", department: "", destination: "", team: inferredTeam,
+      comments: [], activity: [], category: "", department: "", destination: "", team: inferredTeam,
       assignedBy: actor().name, completedBy: null, updatedAt: now, updatedBy: actor().name, ...r
     };
     persistCol(col, (list) => [...list, full]);
@@ -145,7 +163,12 @@ export default function App() {
     persistCol(col, (l) => l.map((r) => (r.id === id ? { ...r, ...patch, ...stamp } : r)));
     runMutation(
       () => updateRecordRow(id, { ...patch, ...stamp }),
-      () => { if (prev) persistCol(col, (l) => l.map((r) => (r.id === id ? prev : r))); }
+      () => { if (prev) persistCol(col, (l) => l.map((r) => (r.id === id ? prev : r))); },
+      () => {
+        if (patch.title && prev && patch.title !== prev.title) {
+          log({ userId: actor().id, name: actor().name, role: actor().role, type: "edit", detail: `Renamed "${prev.title}" to "${patch.title}"` });
+        }
+      }
     );
   };
   const setRecStatus = (col: ColKey, id: string, status: Status) => {
@@ -235,7 +258,7 @@ export default function App() {
     const newId = addRec(input.targetCol, {
       title: input.text, category: input.category, agentId: input.assigneeId, team: assignee?.team,
       status: "pending", dueDate: input.targetCol === "daily" ? Date.now() : undefined,
-      description: `Checklist item from "${parent.title}".`
+      description: parent.description || ""
     });
     const item: ChecklistItem = {
       id: "ck" + Date.now(), text: input.text, done: false, ts: Date.now(), by: actor().name,
@@ -249,7 +272,8 @@ export default function App() {
     persistCol(col, (l) => l.filter((r) => r.id !== id));
     runMutation(
       () => deleteRecordRow(id),
-      () => { if (prev) persistCol(col, (l) => [...l, prev]); }
+      () => { if (prev) persistCol(col, (l) => [...l, prev]); },
+      () => log({ userId: actor().id, name: actor().name, role: actor().role, type: "delete", detail: `Deleted "${prev?.title}"` })
     );
   };
 
@@ -453,7 +477,13 @@ export default function App() {
           : { role: "admin", id: result.id, username: result.username, name: result.name })
       : { role: "agent", agentId: result.id, name: result.name };
     setSession(sess); setAdminTab("home"); setAgentTab("home"); setSelTeam(null); setSelAgent(null);
+    try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(sess)); } catch { /* storage unavailable — session just won't survive a reload */ }
     log({ userId: result.id, name: sess.name, role: sess.role, type: "login", detail: "Signed in" });
+  };
+
+  const doLogout = () => {
+    setSession(null);
+    try { sessionStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
   };
 
   if (loading) return <div style={{ padding: 40, color: C.sub, fontFamily: "ui-sans-serif, system-ui" }}>Loading dashboard…</div>;
@@ -471,9 +501,8 @@ export default function App() {
     openDetail: (id: string, recCol?: ColKey) => setDetail({ col: recCol || col, id })
   });
   const detailRec = detail ? (data[detail.col] || []).find((r) => r.id === detail.id) : null;
-  const reassignedForMe = flattenRecords(data).filter((t) =>
-    !DONEISH(t.status) && (t.collaboratorIds || []).length > 0 &&
-    (session?.role === "admin" || t.agentId === session?.agentId || (t.collaboratorIds || []).includes(session?.agentId || ""))
+  const reassignedForMe = activeDelegations(data).filter((d) =>
+    session?.role === "admin" || d.child.agentId === session?.agentId || d.parent.agentId === session?.agentId
   ).length;
   const reportProps = {
     data, isAdmin: session?.role === "admin", meId: session?.agentId, actorName: session?.name,
@@ -493,7 +522,7 @@ export default function App() {
       {!session ? (
         <Login onLogin={doLogin} />
       ) : session.role === "admin" ? (
-        <Shell session={session} onLogout={() => setSession(null)} onAccount={() => setShowAccount(true)}
+        <Shell session={session} onLogout={doLogout} onAccount={() => setShowAccount(true)}
           tabs={[["home", "Dashboard", <LayoutDashboard size={16} />], ["teams", "Teams", <Users size={16} />], ["daily", "Daily Tasking", <CalendarCheck size={16} />], ["reassigned", "Reassigned Tasks", <ArrowRightLeft size={16} />, reassignedForMe], ["users", "Users", <UserCog size={16} />], ["categories", "Categories", <Tag size={16} />], ["kpi", "KPI Targets", <Target size={16} />], ["premium", "PREMIUM", <Sparkles size={16} />], ["gladex", "GLADEX", <Package size={16} />], ["tariff", "Tariff", <FileText size={16} />], ["report", "Monthly Report", <Gauge size={16} />], ["logs", "Logs", <ScrollText size={16} />]]}
           active={adminTab} setActive={(t) => { setAdminTab(t); setSelTeam(null); setSelAgent(null); }}>
           {adminTab === "home" && <AdminHome data={data} go={(team) => { setAdminTab("teams"); setSelTeam(team as Team); }} />}
@@ -515,7 +544,7 @@ export default function App() {
           )}
         </Shell>
       ) : (
-        <Shell session={session} onLogout={() => setSession(null)}
+        <Shell session={session} onLogout={doLogout}
           tabs={[["home", "My work", <LayoutDashboard size={16} />], ["daily", "Daily Tasking", <CalendarCheck size={16} />], ["reassigned", "Reassigned Tasks", <ArrowRightLeft size={16} />, reassignedForMe], ["kpi", "KPI Targets", <Target size={16} />], ["premium", "PREMIUM", <Sparkles size={16} />], ["gladex", "GLADEX", <Package size={16} />], ["tariff", "Tariff", <FileText size={16} />], ["report", "My Report", <Gauge size={16} />], ["activity", "Activity", <Activity size={16} />]]}
           active={agentTab} setActive={setAgentTab}>
           {agentTab === "home"
@@ -535,7 +564,7 @@ export default function App() {
         <TaskDetail
           task={detailRec} data={data} actor={actor()}
           isAdmin={session.role === "admin"}
-          canEdit={session.role === "admin" || detailRec.agentId === session.agentId || (!!session.agentId && (detailRec.collaboratorIds || []).includes(session.agentId))}
+          canEdit={session.role === "admin" || detailRec.agentId === session.agentId}
           onClose={() => setDetail(null)}
           updateTask={(id, patch) => updateRec(detail.col, id, patch)}
           setStatus={(id, s) => setRecStatus(detail.col, id, s)}
