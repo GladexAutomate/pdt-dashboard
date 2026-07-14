@@ -3,7 +3,7 @@ import { Plus, Search, MapPin } from "lucide-react";
 import { C, card, cellStyle, dateInputStyle, catC, teamColor, inputStyle } from "../lib/theme";
 import { DEPARTMENTS, DESTINATIONS, PRIORITIES, PRIORITY_META, STATUSES, STATUS_META, DONEISH, DEAD, COL_LABEL, COLLECTIONS } from "../lib/constants";
 import { dueMeta, toDateInput, fromDateInput, fmtDay, relTime, trackerColForCategory } from "../lib/helpers";
-import { Chip, Btn, Field, AssigneeSelect, PrioritySelect, StatusSelect, ProgressBar } from "./ui";
+import { Chip, Btn, Field, PrioritySelect, StatusSelect, ProgressBar } from "./ui";
 import type { ColKey, TrackerConfig, AppData, Agent, TaskRecord, Status, Category } from "../lib/types";
 
 /* ---------------- Project / file trackers ---------------- */

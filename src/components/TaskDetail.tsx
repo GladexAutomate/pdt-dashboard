@@ -48,13 +48,6 @@ export function TaskDetail({ task, data, actor, canEdit, onClose, updateTask, se
   const allRecords = useMemo(() => flattenRecords(data), [data]);
   const [addCollabId, setAddCollabId] = useState("");
 
-  const TRACKER_TARGETS: { value: ColKey; label: string }[] = [
-    { value: "tasks", label: "Tasks" }, { value: "daily", label: "Daily Tasking" },
-    { value: "premium", label: "PREMIUM" }, { value: "gladex", label: "GLADEX" }, { value: "tariff", label: "Tariff" }
-  ];
-
-  const [checklistTarget, setChecklistTarget] = useState<ColKey>("daily");
-
   // proof isn't part of the bulk dashboard load (see api.ts) — App.tsx
   // fetches it just for this task once the drawer opens, so re-sync once
   // that arrives (task.proof only changes reference when it actually does).
