@@ -129,18 +129,41 @@ function recordPatchToRow(patch: Partial<TaskRecord>): Record<string, unknown> {
 // on demand for one record at a time, see fetchRecordProof below.
 const RECORD_COLUMNS_NO_PROOF = "id,collection,agent_id,title,category,department,destination,team,status,priority,progress,start_date,due_date,started_at,completed_at,estimated_hours,items_total,items_error,special,target,requirements,remarks,description,links,proof_count,comments,activity,assigned_by,completed_by,updated_at,updated_by,checklist";
 
+// Supabase/PostgREST silently caps any un-paginated select at its max-rows
+// setting (1000 by default) — no error, it just returns 1000 of however many
+// rows exist, with no guarantee those are the newest ones. Once the table
+// crossed that threshold, a plain `.select()` here started randomly leaving
+// out real records (including brand-new ones) with nothing in the response
+// to indicate anything was dropped. Page through with `.range()` until a
+// page comes back empty so every row is actually fetched, regardless of
+// project size.
+async function fetchAllRecords(): Promise<RecordRow[]> {
+  const out: RecordRow[] = [];
+  const pageSize = 1000;
+  let from = 0;
+  for (;;) {
+    const { data, error } = await supabase.from("records").select(RECORD_COLUMNS_NO_PROOF).order("id").range(from, from + pageSize - 1);
+    if (error) throw error;
+    const page = (data as RecordRow[]) || [];
+    out.push(...page);
+    if (page.length === 0) break;
+    from += page.length;
+  }
+  return out;
+}
+
 /* ---------- full app data load ---------- */
 export async function fetchAppData(): Promise<AppData> {
-  const [agentsRes, recordsRes, logsRes, kpiDefsRes, kpiProgressRes, reportsRes, categoriesRes] = await Promise.all([
+  const [agentsRes, records, logsRes, kpiDefsRes, kpiProgressRes, reportsRes, categoriesRes] = await Promise.all([
     supabase.from("agents_public").select("*").order("id"),
-    supabase.from("records").select(RECORD_COLUMNS_NO_PROOF),
+    fetchAllRecords(),
     supabase.from("logs").select("*").order("ts", { ascending: false }).limit(300),
     supabase.from("kpi_defs").select("*"),
     supabase.from("kpi_progress").select("*"),
     supabase.from("reports").select("*"),
     supabase.from("categories").select("*").order("id")
   ]);
-  for (const res of [agentsRes, recordsRes, logsRes, kpiDefsRes, kpiProgressRes, reportsRes, categoriesRes]) {
+  for (const res of [agentsRes, logsRes, kpiDefsRes, kpiProgressRes, reportsRes, categoriesRes]) {
     if (res.error) throw res.error;
   }
 
@@ -148,7 +171,7 @@ export async function fetchAppData(): Promise<AppData> {
   const categories: Category[] = (categoriesRes.data || []).map((r) => ({ id: r.id, name: r.name, color: r.color }));
 
   const byCol: Record<ColKey, TaskRecord[]> = { tasks: [], premium: [], gladex: [], tariff: [], daily: [] };
-  (recordsRes.data as RecordRow[] || []).forEach((row) => { byCol[row.collection].push(rowToRecord(row)); });
+  records.forEach((row) => { byCol[row.collection].push(rowToRecord(row)); });
   // keep the same stable order the rest of the app expects (insertion order isn't guaranteed by the DB)
   for (const col of COLLECTIONS) byCol[col].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
