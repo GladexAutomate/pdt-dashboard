@@ -1,10 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   LayoutDashboard, Users, ScrollText, Target, Sparkles, Package, FileText, Gauge, Activity, CalendarCheck, UserCog, Tag, ArrowRightLeft
 } from "lucide-react";
 
 import { C } from "./lib/theme";
-import { TRACKERS, DONEISH, H, STATUS_META } from "./lib/constants";
+import { TRACKERS, DONEISH, H, STATUS_META, COLLECTIONS } from "./lib/constants";
 import { activeDelegations } from "./lib/helpers";
 import { fetchAppData, insertRecord, updateRecordRow, deleteRecordRow, insertLog, upsertReport, insertKpiDefRow, updateKpiDefRow, deleteKpiDefRow, subscribeToChanges, createAgent, updateAgentRow, deleteAgentRow, updateAdminRow, insertCategoryRow, updateCategoryRow, deleteCategoryRow, setAgentAdmin, setAgentActive, appendComment, appendActivity, appendProof, appendLink, fetchRecordProof, appendChecklistItem } from "./lib/api";
 import type {
@@ -82,12 +82,55 @@ export default function App() {
     })();
   }, []);
 
+  // tracks record ids this tab touched very recently (see persistCol below) —
+  // { ts: when, deleted: was it a removal }. Used to stop the realtime
+  // refetch below from clobbering a just-created/just-edited record with a
+  // snapshot whose underlying query ran before that write was visible: with
+  // many staff editing concurrently, *anyone's* change re-triggers this
+  // refetch, and a stale-relative-to-us snapshot landing right after our own
+  // optimistic update used to silently erase it from screen (the row was
+  // always safe in the database — this was purely a display race).
+  const recentRef = useRef<Map<string, { ts: number; deleted?: boolean }>>(new Map());
+  const RECENT_WINDOW = 8000;
+
   useEffect(() => {
     if (loading) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const refetch = () => {
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => { fetchAppData().then(setData).catch((e) => console.error("Realtime refetch failed", e)); }, 600);
+      timer = setTimeout(() => {
+        fetchAppData().then((fresh) => {
+          const now = Date.now();
+          setData((prev) => {
+            if (!prev) return fresh;
+            const merged: AppData = { ...fresh };
+            for (const col of COLLECTIONS) {
+              const freshList = fresh[col] || [];
+              const prevList = prev[col] || [];
+              const freshIds = new Set(freshList.map((r) => r.id));
+              const out: TaskRecord[] = freshList.map((f) => {
+                const rec = recentRef.current.get(f.id);
+                const local = prevList.find((r) => r.id === f.id);
+                // our own edit is newer than what this fetch caught — keep it
+                if (rec && !rec.deleted && now - rec.ts <= RECENT_WINDOW && local && (local.updatedAt || 0) > (f.updatedAt || 0)) return local;
+                return f;
+              });
+              for (const r of prevList) {
+                if (freshIds.has(r.id)) continue;
+                const rec = recentRef.current.get(r.id);
+                // recently created locally and this fetch's query ran before
+                // it was visible — don't drop it off screen
+                if (rec && !rec.deleted && now - rec.ts <= RECENT_WINDOW) out.push(r);
+              }
+              merged[col] = out;
+            }
+            return merged;
+          });
+          for (const [id, rec] of recentRef.current) {
+            if (now - rec.ts > RECENT_WINDOW) recentRef.current.delete(id);
+          }
+        }).catch((e) => console.error("Realtime refetch failed", e));
+      }, 600);
     };
     const unsubscribe = subscribeToChanges(refetch);
     return () => { if (timer) clearTimeout(timer); unsubscribe(); };
@@ -120,7 +163,25 @@ export default function App() {
 
   const actor = () => ({ id: session?.agentId || "admin", name: session?.name || "—", role: session?.role || "admin" });
   const actId = () => "ac" + Date.now() + Math.random().toString(36).slice(2, 5);
-  const persistCol = (col: ColKey, fn: (list: TaskRecord[]) => TaskRecord[]) => persist((d) => ({ ...d, [col]: fn(d[col] || []) }));
+  // diffs before/after by reference (an untouched row keeps the same object,
+  // since every mutator below only replaces the row(s) it actually changes)
+  // to log which ids this tab just touched, without every mutator needing to
+  // report its own id explicitly — see recentRef above.
+  const persistCol = (col: ColKey, fn: (list: TaskRecord[]) => TaskRecord[]) => persist((d) => {
+    const before = d[col] || [];
+    const after = fn(before);
+    const now = Date.now();
+    const beforeById = new Map(before.map((r) => [r.id, r]));
+    const afterIds = new Set<string>();
+    for (const r of after) {
+      afterIds.add(r.id);
+      if (beforeById.get(r.id) !== r) recentRef.current.set(r.id, { ts: now });
+    }
+    for (const r of before) {
+      if (!afterIds.has(r.id)) recentRef.current.set(r.id, { ts: now, deleted: true });
+    }
+    return { ...d, [col]: after };
+  });
 
   /* runs the real Supabase write behind an optimistic update: on success, fires
      onSuccess (e.g. the activity log entry, which used to fire unconditionally
